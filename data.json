@@ -1,0 +1,24 @@
+{
+    "choices": [
+        {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+                "content": "Hello! How can I assist you today? 😊",
+                "role": "assistant"
+            }
+        }
+    ],
+    "created": 1769862050,
+    "id": "chatcmpl-e1ffd6c6-1cf2-9f81-8f9b-cc435d08c23a",
+    "model": "qwen-flash",
+    "object": "chat.completion",
+    "usage": {
+        "completion_tokens": 11,
+        "prompt_tokens": 9,
+        "prompt_tokens_details": {
+            "cached_tokens": 0
+        },
+        "total_tokens": 20
+    }
+}
