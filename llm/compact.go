@@ -13,16 +13,16 @@ type CompactModel struct {
 	sysPrompt	string
 }
 
-func NewCompactModel(cfg config.Config, logger logger.Logger) *CompactModel {
+func NewCompactModel(cfg *config.Config, logger logger.Logger) *CompactModel {
 	return &CompactModel{
-		Model: *NewModel(cfg, logger, ModelQwenMax, tools.ToolList{}),
+		Model: *NewModel(cfg, logger, ModelQwenMax, *tools.NewToolList()),
 		sysPrompt: prompts.SYS_PROMPT_COMPACT,
 	}
 }
 
-func (c *CompactModel) Process(msgs message.MessageList) message.Message {
+func (c *CompactModel) Process(msgs message.MessageList) (message.Message, error) {
 	compMsgs := message.NewMessageList()
-	compMsgs.AddMessage(message.System, c.sysPrompt)
+	compMsgs.AddCachedMessage(message.System, c.sysPrompt)
 	compMsgs.AddMessages(msgs.Msgs...)
 	compMsgs.AddMessage(message.User, prompts.USR_PROMPT_COMPACT)
 	return c.Model.Process(*compMsgs)

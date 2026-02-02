@@ -25,7 +25,18 @@ func NewPage(name string, maxToken int, description string, compactModel *llm.Co
 }
 
 func (p *Page) AddMessage(role message.Role, msg message.Message) {
-	p.MessageList.AddMessage(role, msg.Content)
+	if msg.Content.IsString() {
+		p.MessageList.AddMessage(role, msg.Content.GetString())
+	} else {
+		// For multimodal content, convert to string representation
+		var contentStr string
+		for _, part := range msg.Content.GetParts() {
+			if part.Text != "" {
+				contentStr += part.Text
+			}
+		}
+		p.MessageList.AddMessage(role, contentStr)
+	}
 }
 
 func (p *Page) ClearMessages() {
@@ -43,7 +54,10 @@ func (p *Page) CompactToOneMessage() error {
 	}
 
 	// 调用压缩模型
-	result := p.CompactModel.Process(p.MessageList)
+	result, err := p.CompactModel.Process(p.MessageList)
+	if err != nil {
+		return err
+	}
 
 	// 清空原消息列表
 	p.ClearMessages()
@@ -66,7 +80,18 @@ func (p *Page) MergeToOneMessage() {
 	// 收集所有消息内容
 	var contents []string
 	for _, msg := range p.MessageList.Msgs {
-		contents = append(contents, msg.Content)
+		if msg.Content.IsString() {
+			contents = append(contents, msg.Content.GetString())
+		} else {
+			// For multimodal content, convert to string representation
+			var contentStr string
+			for _, part := range msg.Content.GetParts() {
+				if part.Text != "" {
+					contentStr += part.Text
+				}
+			}
+			contents = append(contents, contentStr)
+		}
 	}
 
 	// 合并内容

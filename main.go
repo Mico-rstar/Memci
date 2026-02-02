@@ -1,43 +1,28 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"memci/config"
-
-	openai "github.com/sashabaranov/go-openai"
+	"memci/llm"
+	"memci/logger"
+	"memci/message"
+	"memci/tools"
 )
-
-
 
 func main() {
 	cfg := config.LoadConfig(".env")
-	oaiCfg := openai.DefaultConfig(cfg.LLM.ApiKey)
-	oaiCfg.BaseURL = cfg.LLM.BaseUrl
-	client := openai.NewClientWithConfig(oaiCfg)
+	lg := logger.NewNoOpLogger()
 
-	rsp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model: "qwen-flash",
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    "user",
-					Content: "你好",
-				},
-			},
-		},
-	)
+	model := llm.NewModel(cfg, lg, llm.ModelQwenFlash, *tools.NewToolList())
 
-	
+	msgs := message.NewMessageList().
+		AddMessage(message.User, "你好")
 
-
+	resp, err := model.Process(*msgs)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("Error:", err)
+		return
 	}
 
-	fmt.Println(rsp.Choices[0].Message.Content)
-
-	// msg := message.Message{}
-	
+	fmt.Println(resp.Content)
 }

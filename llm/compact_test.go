@@ -11,11 +11,13 @@ import (
 	"testing"
 
 	"memci/test"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompactModel(t *testing.T) {
 
-	cfg := *config.LoadConfig("../config/config.toml")
+	cfg := config.LoadConfig("../config/config.toml")
 	lg := logger.NewNoOpLogger()
 	cpml := NewCompactModel(cfg, lg)
 
@@ -39,15 +41,16 @@ func TestCompactModel(t *testing.T) {
 			// 构建消息列表
 			msgs := message.NewMessageList()
 			for _, msg := range tc.Input {
-				msgs.AddMessage(msg.Role, msg.Content)
+				msgs.AddMessage(msg.Role, msg.Content.String())
 			}
 
 			// 调用压缩模型
-			result := cpml.Process(*msgs)
+			result, err := cpml.Process(*msgs)
+			require.NoError(t, err)
 
 			// 输出结果
 			fmt.Printf("\n预期摘要:\n%s\n\n", tc.ExpectedSummary)
-			fmt.Printf("实际摘要:\n%s\n\n", result.Content)
+			fmt.Printf("实际摘要:\n%s\n\n", result.Content.String())
 
 		})
 	}

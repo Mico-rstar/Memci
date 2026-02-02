@@ -1,8 +1,24 @@
 package tools
 
-import "github.com/sashabaranov/go-openai"
-
 type H = map[string]interface{}
+
+const (
+	ToolTypeFunction = "function"
+)
+
+// FunctionDefinition represents a function definition for a tool
+type FunctionDefinition struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Strict      bool   `json:"strict,omitempty"`
+	Parameters  H      `json:"parameters"`
+}
+
+// Tool represents a tool that can be called by the model
+type Tool struct {
+	Type     string              `json:"type"`
+	Function *FunctionDefinition `json:"function,omitempty"`
+}
 
 type Field struct {
 	Name        string `json:"name"`
@@ -55,12 +71,18 @@ type ToolList struct {
 	Tools []FunctionTool
 }
 
-func  (tl *ToolList) ConvertToOaiFormat() []openai.Tool {
-	var tools []openai.Tool
+func NewToolList() *ToolList {
+	return &ToolList{
+		Tools: make([]FunctionTool, 0),
+	}
+}
+
+func (tl *ToolList) ConvertToOaiFormat() []Tool {
+	var tools []Tool
 	for _, tool := range tl.Tools {
-		tools = append(tools, openai.Tool{
-			Type: openai.ToolTypeFunction,
-			Function: &openai.FunctionDefinition{
+		tools = append(tools, Tool{
+			Type: ToolTypeFunction,
+			Function: &FunctionDefinition{
 				Name:        tool.Name,
 				Description: tool.Description,
 				Strict:      tool.Strict,
