@@ -15,6 +15,9 @@ bin/
 /logs/
 *.log
 
+#test
+test/
+
 # Config (with sensitive data)
 config.toml
 
