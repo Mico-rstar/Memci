@@ -23,7 +23,7 @@ func NewCompactModel(cfg *config.Config, logger logger.Logger) *CompactModel {
 func (c *CompactModel) Process(msgs message.MessageList) (message.Message, error) {
 	compMsgs := message.NewMessageList()
 	compMsgs.AddCachedMessage(message.System, c.sysPrompt)
-	compMsgs.AddMessages(msgs.Msgs...)
+	compMsgs.AddMessageList(&msgs)
 	compMsgs.AddMessage(message.User, prompts.USR_PROMPT_COMPACT)
 	return c.Model.Process(*compMsgs)
 }

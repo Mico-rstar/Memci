@@ -2,6 +2,7 @@ package context
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ATTPTools ATTP 协议召回工具
@@ -95,11 +96,12 @@ func generatePageSummary(page *Page) string {
 	}
 
 	var summary string
-	for i, entry := range entries {
-		if i > 0 {
-			summary += "\n"
+	if len(entries) > 0 {
+		var parts []string
+		for _, entry := range entries {
+			parts = append(parts, fmt.Sprintf("[%s] %s", entry.Role(), truncateForSummary(entry.Content().String(), 100)))
 		}
-		summary += fmt.Sprintf("[%s] %s", entry.Role, truncateForSummary(entry.Content.String(), 100))
+		summary = strings.Join(parts, "\n")
 	}
 
 	return summary

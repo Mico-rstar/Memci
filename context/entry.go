@@ -7,12 +7,11 @@ import (
 	"time"
 )
 
-// Entry 上下文系统最小单位，封装 Message 解耦 API 协议
+// Entry 上下文系统最小单位，对应 MessageList 中的一个 MessageNode
+// Entry 只持有节点引用，消息数据通过 Node 访问
 type Entry struct {
 	ID        string
-	Role      message.Role
-	Content   message.Content
-	ToolCalls []message.ToolCall
+	Node      *message.MessageNode // 指向 MessageList 中的节点
 	Timestamp time.Time
 	Metadata  map[string]string
 }
@@ -23,13 +22,12 @@ type EntrySummary struct {
 	Summary string // 摘要内容
 }
 
-// NewEntry 创建新的 Entry
+// NewEntry 创建新的 Entry（同时创建 MessageNode）
 func NewEntry(role message.Role, content message.Content) *Entry {
+	node := message.CreateNode(role, content)
 	return &Entry{
 		ID:        generateEntryID(),
-		Role:      role,
-		Content:   content,
-		ToolCalls: nil,
+		Node:      node,
 		Timestamp: time.Now(),
 		Metadata:  make(map[string]string),
 	}
@@ -37,11 +35,10 @@ func NewEntry(role message.Role, content message.Content) *Entry {
 
 // NewEntryWithID 创建带有指定 ID 的 Entry（用于从存储恢复）
 func NewEntryWithID(id string, role message.Role, content message.Content, timestamp time.Time) *Entry {
+	node := message.CreateNode(role, content)
 	return &Entry{
 		ID:        id,
-		Role:      role,
-		Content:   content,
-		ToolCalls: nil,
+		Node:      node,
 		Timestamp: timestamp,
 		Metadata:  make(map[string]string),
 	}
@@ -49,33 +46,50 @@ func NewEntryWithID(id string, role message.Role, content message.Content, times
 
 // NewEntryFromMessage 从 Message 创建 Entry
 func NewEntryFromMessage(msg message.Message) *Entry {
+	node := message.CreateNode(msg.Role, msg.Content)
 	return &Entry{
 		ID:        generateEntryID(),
-		Role:      msg.Role,
-		Content:   msg.Content,
-		ToolCalls: msg.ToolCalls,
+		Node:      node,
 		Timestamp: time.Now(),
 		Metadata:  make(map[string]string),
 	}
 }
 
+// NewEntryFromNode 从 MessageNode 创建 Entry
+func NewEntryFromNode(node *message.MessageNode) *Entry {
+	return &Entry{
+		ID:        generateEntryID(),
+		Node:      node,
+		Timestamp: time.Now(),
+		Metadata:  make(map[string]string),
+	}
+}
+
+// Role 返回 Entry 的角色
+func (e *Entry) Role() message.Role {
+	return e.Node.GetMsg().Role
+}
+
+// Content 返回 Entry 的内容
+func (e *Entry) Content() message.Content {
+	return e.Node.GetMsg().Content
+}
+
 // ToMessage 将 Entry 转换为 Message
 func (e *Entry) ToMessage() message.Message {
-	return message.Message{
-		Role:      e.Role,
-		Content:   e.Content,
-		ToolCalls: e.ToolCalls,
-	}
+	return e.Node.GetMsg()
 }
 
 // String 返回 Entry 的字符串表示
 func (e *Entry) String() string {
-	return fmt.Sprintf("[%s] %s", e.Role, e.Content.String())
+	return fmt.Sprintf("[%s] %s", e.Role(), e.Content().String())
 }
 
 // AddToolCall 添加工具调用
 func (e *Entry) AddToolCall(toolCall message.ToolCall) {
-	e.ToolCalls = append(e.ToolCalls, toolCall)
+	msg := e.Node.GetMsg()
+	msg.ToolCalls = append(msg.ToolCalls, toolCall)
+	e.Node.SetMsg(msg)
 }
 
 // SetMetadata 设置元数据
@@ -95,13 +109,13 @@ func (e *Entry) Summarize(model *llm.CompactModel) (*EntrySummary, error) {
 		// 无模型时返回简单摘要
 		return &EntrySummary{
 			EntryID: e.ID,
-			Summary:  e.Content.String(),
+			Summary:  e.Content().String(),
 		}, nil
 	}
 
 	// 使用压缩模型生成摘要
 	// 构造临时消息列表
-	msgList := message.NewMessageList().AddMessage(e.Role, e.Content.String())
+	msgList := message.NewMessageList().AddMessage(e.Role(), e.Content().String())
 
 	result, err := model.Process(*msgList)
 	if err != nil {
@@ -161,14 +175,6 @@ func (el *EntryList) Get(index int) (*Entry, bool) {
 	return el.Entries[index], true
 }
 
-// ToMessageList 转换为 MessageList
-func (el *EntryList) ToMessageList() *message.MessageList {
-	msgList := message.NewMessageList()
-	for _, entry := range el.Entries {
-		msgList.AddMessageContent(entry.Role, entry.Content)
-	}
-	return msgList
-}
 
 // Clear 清空列表
 func (el *EntryList) Clear() {

@@ -24,14 +24,12 @@ type Segment interface {
 // SystemChapter 系统提示词 Chapter
 type SystemChapter struct {
 	*BaseChapter
-	extraTools string // 额外的工具描述（如 ATTP 召回工具）
 }
 
 // NewSystemChapter 创建系统 Chapter
 func NewSystemChapter() *SystemChapter {
 	return &SystemChapter{
 		BaseChapter: NewBaseChapter(TypeSystemChapter),
-		extraTools:  "",
 	}
 }
 
@@ -39,14 +37,6 @@ func NewSystemChapter() *SystemChapter {
 func (sc *SystemChapter) SetExtraTools(tools string) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
-	sc.extraTools = tools
-}
-
-// GetExtraTools 获取额外的工具描述
-func (sc *SystemChapter) GetExtraTools() string {
-	sc.mu.RLock()
-	defer sc.mu.RUnlock()
-	return sc.extraTools
 }
 
 // AddSystemPage 添加系统提示词 Page
@@ -65,23 +55,7 @@ func (sc *SystemChapter) ToMessageList() *message.MessageList {
 	for _, index := range sc.ordered {
 		page := sc.pages[index]
 		pageMsgs := page.ToMessageList()
-		for _, msg := range pageMsgs.Msgs {
-			msgList.AddMessageContent(msg.Role, msg.Content)
-		}
-	}
-
-	// 2. 如果有 extraTools，追加到最后一条系统消息
-	if sc.extraTools != "" {
-		// 获取最后一条消息，如果是系统消息，追加工具描述
-		if len(msgList.Msgs) > 0 {
-			lastMsg := msgList.Msgs[len(msgList.Msgs)-1]
-			if lastMsg.Role == message.System {
-				// 更新最后一条系统消息，追加工具描述
-				lastMsg.Content = message.NewContentString(
-					lastMsg.Content.String() + "\n\n" + sc.extraTools,
-				)
-			}
-		}
+		msgList.AddMessageList(pageMsgs)
 	}
 
 	return msgList
@@ -121,7 +95,7 @@ func NewSystemSegmentWithEntries(entries []*Entry) *SystemSegment {
 
 	// 为每个系统 Entry 创建一个 Page
 	for i, entry := range entries {
-		if entry.Role == message.System {
+		if entry.Role() == message.System {
 			page := NewPage(PageIndex(i), "system", -1, "", nil)
 			page.AddEntry(entry)
 			ss.systemChapter.AddSystemPage(page, PageIndex(i))
@@ -244,15 +218,11 @@ func (cs *CommonSegment) GetMessageList() *message.MessageList {
 
 	// 1. 首先添加 ArchiveChapter 的 Contents Page
 	archiveMsgs := cs.archiveChapter.ToMessageList()
-	for _, msg := range archiveMsgs.Msgs {
-		msgList.AddMessageContent(msg.Role, msg.Content)
-	}
+	msgList.AddMessageList(archiveMsgs)
 
 	// 2. 然后添加 ActiveChapter 的完整 Pages
 	activeMsgs := cs.activeChapter.ToMessageList()
-	for _, msg := range activeMsgs.Msgs {
-		msgList.AddMessageContent(msg.Role, msg.Content)
-	}
+	msgList.AddMessageList(activeMsgs)
 
 	return msgList
 }
@@ -438,15 +408,11 @@ func (ctx *ContextSystem) GetMessageList() *message.MessageList {
 
 	// 1. 系统消息
 	sysMsgs := ctx.systemSegment.GetMessageList()
-	for _, msg := range sysMsgs.Msgs {
-		msgList.AddMessageContent(msg.Role, msg.Content)
-	}
+	msgList.AddMessageList(sysMsgs)
 
 	// 2. 用户交互消息
 	commonMsgs := ctx.commonSegment.GetMessageList()
-	for _, msg := range commonMsgs.Msgs {
-		msgList.AddMessageContent(msg.Role, msg.Content)
-	}
+	msgList.AddMessageList(commonMsgs)
 
 	return msgList
 }

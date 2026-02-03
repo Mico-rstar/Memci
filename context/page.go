@@ -64,10 +64,8 @@ func (p *Page) CompactToOneMessage() error {
 		return nil
 	}
 
-	// 将 Entries 转换为 MessageList 进行压缩
-	entryList := NewEntryList()
-	entryList.Entries = p.Entries
-	msgList := entryList.ToMessageList()
+	// 将 Entries 的 MessageNode 连接成 MessageList 进行压缩
+	msgList := p.ToMessageList()
 
 	result, err := p.CompactModel.Process(*msgList)
 	if err != nil {
@@ -90,12 +88,12 @@ func (p *Page) MergeToOneMessage() {
 	}
 
 	// 保存第一条 Entry 的 role
-	firstRole := p.Entries[0].Role
+	firstRole := p.Entries[0].Role()
 
 	// 收集所有 Entry 的内容
 	var contents []string
 	for _, entry := range p.Entries {
-		contents = append(contents, entry.Content.String())
+		contents = append(contents, entry.Content().String())
 	}
 
 	// 合并内容
@@ -117,11 +115,11 @@ func (p *Page) Summarize() string {
 	// 简单摘要：收集所有 Entry 的内容预览
 	var parts []string
 	for _, entry := range p.Entries {
-		preview := entry.Content.String()
+		preview := entry.Content().String()
 		if len(preview) > 50 {
 			preview = preview[:50] + "..."
 		}
-		parts = append(parts, entry.Role+": "+preview)
+		parts = append(parts, entry.Role()+": "+preview)
 	}
 
 	return strings.Join(parts, " | ")
@@ -131,8 +129,7 @@ func (p *Page) Summarize() string {
 func (p *Page) ToMessageList() *message.MessageList {
 	msgList := message.NewMessageList()
 	for _, entry := range p.Entries {
-		msg := entry.ToMessage()
-		msgList.AddMessageContent(msg.Role, msg.Content)
+		msgList.AddNode(entry.Node)
 	}
 	return msgList
 }
@@ -141,7 +138,7 @@ func (p *Page) ToMessageList() *message.MessageList {
 func (p *Page) EstimateTokens() int {
 	totalChars := 0
 	for _, entry := range p.Entries {
-		totalChars += len(entry.Content.String())
+		totalChars += len(entry.Content().String())
 	}
 	// 粗略估算：token 数 ≈ 字符数 / 4
 	return totalChars / 4

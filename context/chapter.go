@@ -120,11 +120,9 @@ func (bc *BaseChapter) ToMessageList() *message.MessageList {
 
 	for _, index := range bc.ordered {
 		page := bc.pages[index]
-		// 使用 Page 的 ToMessageList 方法
+		// 直接将 Page 的 MessageList 添加进来
 		pageMsgs := page.ToMessageList()
-		for _, msg := range pageMsgs.Msgs {
-			msgList.AddMessageContent(msg.Role, msg.Content)
-		}
+		msgList.AddMessageList(pageMsgs)
 	}
 
 	return msgList
@@ -268,7 +266,7 @@ func (ac *ArchiveChapter) summarizePage(page *Page) (string, []EntrySummary, err
 			// 如果摘要失败，使用简单摘要
 			summary = &EntrySummary{
 				EntryID: entry.ID,
-				Summary:  truncateString(entry.Content.String(), 100),
+				Summary:  truncateString(entry.Content().String(), 100),
 			}
 		}
 		entrySummaries = append(entrySummaries, *summary)

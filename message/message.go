@@ -177,50 +177,201 @@ type Message struct {
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 }
 
+// MessageNode represents a node in the linked list
+type MessageNode struct {
+	msg  Message
+	next *MessageNode
+	prev *MessageNode
+}
+
+// GetMsg returns the message in this node
+func (n *MessageNode) GetMsg() Message {
+	return n.msg
+}
+
+// SetMsg sets the message in this node
+func (n *MessageNode) SetMsg(msg Message) {
+	n.msg = msg
+}
+
+// MessageList is a doubly linked list of messages
 type MessageList struct {
-	Msgs []Message
+	head *MessageNode
+	tail *MessageNode
+	len  int
 }
 
 func NewMessageList() *MessageList {
 	return &MessageList{
-		Msgs: make([]Message, 0),
+		head: nil,
+		tail: nil,
+		len:  0,
 	}
 }
 
 func (m *MessageList) AddMessages(msgs ...Message) *MessageList {
-	m.Msgs = append(m.Msgs, msgs...)
+	for _, msg := range msgs {
+		m.AddMessageContent(msg.Role, msg.Content)
+	}
 	return m
 }
 
 func (m *MessageList) AddMessage(role Role, content string) *MessageList {
-	m.Msgs = append(m.Msgs, Message{
-		Role:    role,
-		Content: NewContentString(content),
-	})
-	return m
+	return m.AddMessageContent(role, NewContentString(content))
 }
 
 func (m *MessageList) AddCachedMessage(role Role, content string) *MessageList {
-	m.Msgs = append(m.Msgs, Message{
-		Role:    role,
-		Content: NewCachedContentString(content),
-	})
-	return m
+	return m.AddMessageContent(role, NewCachedContentString(content))
 }
 
 // AddMessageContent adds a message with Content type
 func (m *MessageList) AddMessageContent(role Role, content Content) *MessageList {
-	m.Msgs = append(m.Msgs, Message{
-		Role:    role,
-		Content: content,
-	})
+	node := &MessageNode{
+		msg: Message{
+			Role:    role,
+			Content: content,
+		},
+		next: nil,
+		prev: nil,
+	}
+
+	if m.tail == nil {
+		m.head = node
+		m.tail = node
+	} else {
+		m.tail.next = node
+		node.prev = m.tail
+		m.tail = node
+	}
+	m.len++
 	return m
 }
 
+// AddMessageList adds all messages from another MessageList
+func (m *MessageList) AddMessageList(other *MessageList) *MessageList {
+	for node := other.head; node != nil; node = node.next {
+		m.AddMessageContent(node.msg.Role, node.msg.Content)
+	}
+	return m
+}
+
+// AddNode adds an existing MessageNode to the list
+func (m *MessageList) AddNode(node *MessageNode) *MessageList {
+	node.next = nil
+	node.prev = nil
+
+	if m.tail == nil {
+		m.head = node
+		m.tail = node
+	} else {
+		m.tail.next = node
+		node.prev = m.tail
+		m.tail = node
+	}
+	m.len++
+	return m
+}
+
+// RemoveNode removes a specific node from the list (O(1) operation)
+func (m *MessageList) RemoveNode(node *MessageNode) {
+	if node == nil {
+		return
+	}
+
+	// Update previous node
+	if node.prev != nil {
+		node.prev.next = node.next
+	} else {
+		// Node is head
+		m.head = node.next
+	}
+
+	// Update next node
+	if node.next != nil {
+		node.next.prev = node.prev
+	} else {
+		// Node is tail
+		m.tail = node.prev
+	}
+
+	m.len--
+}
+
+// CreateNode creates a new MessageNode (without adding to list)
+func CreateNode(role Role, content Content) *MessageNode {
+	return &MessageNode{
+		msg: Message{
+			Role:    role,
+			Content: content,
+		},
+		next: nil,
+		prev: nil,
+	}
+}
+
+// GetNode returns the head node of the list
+func (m *MessageList) GetNode() *MessageNode {
+	return m.head
+}
+
+// GetNext returns the next node
+func (n *MessageNode) GetNext() *MessageNode {
+	return n.next
+}
+
+// GetPrev returns the previous node
+func (n *MessageNode) GetPrev() *MessageNode {
+	return n.prev
+}
+
 func (m *MessageList) ClearMessages() {
-	m.Msgs = make([]Message, 0)
+	m.head = nil
+	m.tail = nil
+	m.len = 0
 }
 
 func (m *MessageList) Len() int {
-	return len(m.Msgs)
+	return m.len
+}
+
+// Msgs returns all messages as a slice (for backward compatibility)
+// func (m *MessageList) Msgs() []Message {
+// 	result := make([]Message, 0, m.len)
+// 	for node := m.head; node != nil; node = node.next {
+// 		result = append(result, node.msg)
+// 	}
+// 	return result
+// }
+
+// MarshalJSON implements json.Marshaler - 直接序列化链表，避免创建切片副本
+func (m *MessageList) MarshalJSON() ([]byte, error) {
+	buf := []byte{'['}
+
+	for node := m.head; node != nil; node = node.next {
+		if node != m.head {
+			buf = append(buf, ',')
+		}
+		msgJSON, err := json.Marshal(node.msg)
+		if err != nil {
+			return nil, err
+		}
+		buf = append(buf, msgJSON...)
+	}
+
+	buf = append(buf, ']')
+	return buf, nil
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (m *MessageList) UnmarshalJSON(data []byte) error {
+	var msgs []Message
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		return err
+	}
+
+	m.ClearMessages()
+	for _, msg := range msgs {
+		m.AddMessageContent(msg.Role, msg.Content)
+	}
+	return nil
 }

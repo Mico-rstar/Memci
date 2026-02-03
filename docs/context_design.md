@@ -2,7 +2,7 @@
 这是Memci的上下文管理设计文档
 
 ## 基本抽象
-- **Entry**: entry上下文系统最小单位，一个entry对于api调用的一个message，定义entry而不直接使用message主要是为了将上下文系统与底层依赖的具体的Restful api协议解耦，使得上下文系统可以容易地迁移到其他的api协议中
+- **Entry**: entry上下文系统最小单位，一个entry对应MessageList中的一个MessageNode
 - **Page**: page是上下文系统管理的基本单位，一个page逻辑上对应与用户的一次交互产生的多条entry(一条用户entry以及多条assistant或tool entry)，上下文系统对于上下文的卸载和召回以page为单位。
 - **Chapter**: chapter是一组相关page的集合，chapter对于LLM来说是不可见。chapter是上下文管理的关键，chapter能够将其拥有的所有页卸载出上下文窗口，并生成一个Contents Page放入上下文窗口
 - **Contents Page**: 目录页是上下文系统为LLM提供的压缩视图，LLM可以通过目录页看到被卸载出上下文窗口的Page的index，LLM可以通过index召回Page

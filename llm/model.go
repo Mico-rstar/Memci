@@ -24,7 +24,7 @@ type ModelName string
 // ChatCompletionRequest represents a chat completion request
 type ChatCompletionRequest struct {
 	Model    string                  `json:"model"`
-	Messages []message.Message       `json:"messages"`
+	Messages *message.MessageList    `json:"messages"`
 	Tools    []tools.Tool            `json:"tools,omitempty"`
 }
 
@@ -81,7 +81,7 @@ func NewModel(cfg *config.Config, logger logger.Logger, name ModelName, tools to
 func (m *Model) Process(msgs message.MessageList) (message.Message, error) {
 	reqBody := ChatCompletionRequest{
 		Model:    string(m.name),
-		Messages: msgs.Msgs,
+		Messages: &msgs,
 		Tools:    m.tools.ConvertToOaiFormat(),
 	}
 
