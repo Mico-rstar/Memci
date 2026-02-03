@@ -208,6 +208,15 @@ func (m *MessageList) AddCachedMessage(role Role, content string) *MessageList {
 	return m
 }
 
+// AddMessageContent adds a message with Content type
+func (m *MessageList) AddMessageContent(role Role, content Content) *MessageList {
+	m.Msgs = append(m.Msgs, Message{
+		Role:    role,
+		Content: content,
+	})
+	return m
+}
+
 func (m *MessageList) ClearMessages() {
 	m.Msgs = make([]Message, 0)
 }

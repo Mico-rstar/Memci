@@ -5,8 +5,9 @@ import (
 )
 
 type Config struct {
-	LLM LLMConfig `mapstructure:"llm"`
-	Log LogConfig `mapstructure:"log"`
+	LLM     LLMConfig      `mapstructure:"llm"`
+	Log     LogConfig      `mapstructure:"log"`
+	Context ContextConfig  `mapstructure:"context"`
 }
 
 type LLMConfig struct {
@@ -21,6 +22,24 @@ type LogConfig struct {
 	MaxSizeMB  int    `toml:"max_size_mb" mapstructure:"max_size_mb" default:"100"`
 	MaxBackups int    `toml:"max_backups" mapstructure:"max_backups" default:"3"`
 	MaxAgeDays int    `toml:"max_age_days" mapstructure:"max_age_days" default:"30"`
+}
+
+// ContextConfig 上下文系统配置
+type ContextConfig struct {
+	// Active Chapter 配置
+	ActiveMaxPages int `toml:"active_max_pages" mapstructure:"active_max_pages" default:"5"` // ActiveChapter 最多保留的 Page 数量
+
+	// Archive Chapter 配置
+	ArchiveMaxToken int `toml:"archive_max_token" mapstructure:"archive_max_token" default:"2000"` // Contents Page 最大 token 数
+
+	// 卸载策略配置
+	UnloadMinRecallTurns  int     `toml:"unload_min_recall_turns" mapstructure:"unload_min_recall_turns" default:"10"`    // m 轮对话后召回次数为 0 则卸载
+	UnloadStaleRecallTurns int    `toml:"unload_stale_recall_turns" mapstructure:"unload_stale_recall_turns" default:"20"`  // p 轮对话后召回次数不变则卸载
+	UnloadMaxTokenRatio    float64 `toml:"unload_max_token_ratio" mapstructure:"unload_max_token_ratio" default:"0.9"`    // 达到最大 token 的比例时按 LRU 卸载
+
+	// 存储配置
+	StorageBaseDir string `toml:"storage_base_dir" mapstructure:"storage_base_dir" default:"./data/pages"` // Page 存储目录
+	StorageUseGzip bool   `toml:"storage_use_gzip" mapstructure:"storage_use_gzip" default:"true"`          // 是否使用 gzip 压缩存储
 }
 
 var config Config
