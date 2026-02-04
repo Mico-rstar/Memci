@@ -91,10 +91,6 @@ func (cb *ContextBuilder) BuildWithATTP(sysMsgs []message.Message, attpTools *AT
 		return nil, err
 	}
 
-	// 设置 ATTP 召回工具定义到系统提示词
-	toolsDef := attpTools.GetToolDefinitions()
-	ctxSystem.SetExtraTools(toolsDef)
-
 	cb.logger.Info("Context system built with ATTP tools")
 	return ctxSystem, nil
 }
@@ -259,11 +255,6 @@ func (csb *ContextSystemBuilder) Build() (*ContextSystem, error) {
 		}
 	}
 
-	// 配置 ATTP 工具
-	if csb.attpTools != nil {
-		toolsDef := csb.attpTools.GetToolDefinitions()
-		ctxSystem.SetExtraTools(toolsDef)
-	}
 
 	return ctxSystem, nil
 }

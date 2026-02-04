@@ -90,7 +90,7 @@ func (at *ATTPTools) ListPages(params ListPagesParams) ([]PageInfo, error) {
 
 // generatePageSummary 生成 Page 的摘要（用于召回后显示）
 func generatePageSummary(page *Page) string {
-	entries := page.Entries
+	entries := page.GetEntries()
 	if len(entries) == 0 {
 		return "(空 Page)"
 	}

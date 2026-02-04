@@ -272,6 +272,21 @@ func (m *MessageList) AddNode(node *MessageNode) *MessageList {
 	return m
 }
 
+// AddNodeWithoutReset adds an existing MessageNode to the list without resetting next/prev
+// This is used for nodes that are already part of a linked list structure
+func (m *MessageList) AddNodeWithoutReset(node *MessageNode) *MessageList {
+	if m.tail == nil {
+		m.head = node
+		m.tail = node
+	} else {
+		m.tail.next = node
+		node.prev = m.tail
+		m.tail = node
+	}
+	m.len++
+	return m
+}
+
 // RemoveNode removes a specific node from the list (O(1) operation)
 func (m *MessageList) RemoveNode(node *MessageNode) {
 	if node == nil {
@@ -295,6 +310,25 @@ func (m *MessageList) RemoveNode(node *MessageNode) {
 	}
 
 	m.len--
+}
+
+// SetHead sets the head of the MessageList (for internal use after node removal)
+func (m *MessageList) SetHead(head *MessageNode) {
+	m.head = head
+	if head == nil {
+		m.tail = nil
+		m.len = 0
+	}
+}
+
+// GetHead returns the head node of the MessageList
+func (m *MessageList) GetHead() *MessageNode {
+	return m.head
+}
+
+// GetTail returns the tail node of the MessageList
+func (m *MessageList) GetTail() *MessageNode {
+	return m.tail
 }
 
 // CreateNode creates a new MessageNode (without adding to list)
@@ -324,6 +358,28 @@ func (n *MessageNode) GetPrev() *MessageNode {
 	return n.prev
 }
 
+// SetNext sets the next node (for rebuilding linked lists)
+func (n *MessageNode) SetNext(next *MessageNode) {
+	n.next = next
+}
+
+// SetPrev sets the previous node (for rebuilding linked lists)
+func (n *MessageNode) SetPrev(prev *MessageNode) {
+	n.prev = prev
+}
+
+// MarshalJSON implements json.Marshaler
+// 序列化时只保存 msg 数据，不保存链表指针 (next/prev)
+func (n *MessageNode) MarshalJSON() ([]byte, error) {
+	return json.Marshal(n.msg)
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+// 反序列化时创建新节点，next/prev 为 nil
+func (n *MessageNode) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &n.msg)
+}
+
 func (m *MessageList) ClearMessages() {
 	m.head = nil
 	m.tail = nil
@@ -332,6 +388,47 @@ func (m *MessageList) ClearMessages() {
 
 func (m *MessageList) Len() int {
 	return m.len
+}
+
+// ForEach 遍历每个 Message
+func (m *MessageList) ForEach(fn func(msg Message)) {
+	for node := m.head; node != nil; node = node.next {
+		fn(node.msg)
+	}
+}
+
+// ForEachNode 遍历每个 MessageNode
+func (m *MessageList) ForEachNode(fn func(node *MessageNode)) {
+	for node := m.head; node != nil; node = node.next {
+		fn(node)
+	}
+}
+
+// Range 遍历每个 Message，返回 false 时停止遍历
+func (m *MessageList) Range(fn func(msg Message) bool) {
+	for node := m.head; node != nil; node = node.next {
+		if !fn(node.msg) {
+			break
+		}
+	}
+}
+
+// RangeNode 遍历每个 MessageNode，返回 false 时停止遍历
+func (m *MessageList) RangeNode(fn func(node *MessageNode) bool) {
+	for node := m.head; node != nil; node = node.next {
+		if !fn(node) {
+			break
+		}
+	}
+}
+
+// ToSlice 将 MessageList 转换为 Message 切片
+func (m *MessageList) ToSlice() []Message {
+	result := make([]Message, 0, m.len)
+	for node := m.head; node != nil; node = node.next {
+		result = append(result, node.msg)
+	}
+	return result
 }
 
 // Msgs returns all messages as a slice (for backward compatibility)

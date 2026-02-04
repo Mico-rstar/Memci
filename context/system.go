@@ -33,11 +33,7 @@ func NewSystemChapter() *SystemChapter {
 	}
 }
 
-// SetExtraTools 设置额外的工具描述
-func (sc *SystemChapter) SetExtraTools(tools string) {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
-}
+
 
 // AddSystemPage 添加系统提示词 Page
 func (sc *SystemChapter) AddSystemPage(page *Page, index PageIndex) error {
@@ -119,12 +115,7 @@ func (ss *SystemSegment) Type() SegmentType {
 	return TypeSystemSegment
 }
 
-// SetExtraTools 设置额外的工具描述
-func (ss *SystemSegment) SetExtraTools(tools string) {
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-	ss.systemChapter.SetExtraTools(tools)
-}
+
 
 // GetMessageList 获取 MessageList
 func (ss *SystemSegment) GetMessageList() *message.MessageList {
@@ -298,12 +289,7 @@ func (ctx *ContextSystem) SetSystemPrompt(prompt string) {
 	systemChapter.AddSystemPage(page, 0)
 }
 
-// SetExtraTools 设置额外的工具描述（如 ATTP 召回工具）
-func (ctx *ContextSystem) SetExtraTools(tools string) {
-	ctx.mu.Lock()
-	defer ctx.mu.Unlock()
-	ctx.systemSegment.SetExtraTools(tools)
-}
+
 
 // AddUserEntry 添加用户 Entry 并创建新 Page
 func (ctx *ContextSystem) AddUserEntry(entry *Entry) (PageIndex, error) {

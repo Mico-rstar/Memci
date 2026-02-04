@@ -31,7 +31,8 @@ type Chapter interface {
 type BaseChapter struct {
 	chapterType ChapterType
 	pages       map[PageIndex]*Page
-	ordered     []PageIndex // 保持插入顺序
+	ordered     []PageIndex     // 保持插入顺序
+	msgList     *message.MessageList // 维护统一的 MessageList
 	mu          sync.RWMutex
 }
 
@@ -41,6 +42,7 @@ func NewBaseChapter(chapterType ChapterType) *BaseChapter {
 		chapterType: chapterType,
 		pages:       make(map[PageIndex]*Page),
 		ordered:     make([]PageIndex, 0),
+		msgList:     message.NewMessageList(),
 	}
 }
 
@@ -49,13 +51,31 @@ func (bc *BaseChapter) Type() ChapterType {
 	return bc.chapterType
 }
 
-// AddPage 添加 Page
+// AddPage 添加 Page，并将其 Node 添加到统一的 MessageList
 func (bc *BaseChapter) AddPage(page *Page, index PageIndex) error {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
 	if _, exists := bc.pages[index]; exists {
 		return fmt.Errorf("page with index %d already exists", index)
+	}
+
+	// 设置 Page 的 chapter 引用
+	page.chapter = bc
+
+	// 遍历 Page 的所有 Node（从 head 到 tail）并添加到 MessageList
+	// 只添加尚未在 msgList 中的节点
+	if page.head != nil && page.tail != nil {
+		// 检查 head 是否已经在 msgList 中
+		if bc.msgList.GetHead() != page.head {
+			// 遍历所有节点并添加到 msgList
+			for node := page.head; node != nil; node = node.GetNext() {
+				bc.msgList.AddNodeWithoutReset(node)
+				if node == page.tail {
+					break
+				}
+			}
+		}
 	}
 
 	bc.pages[index] = page
@@ -111,21 +131,43 @@ func (bc *BaseChapter) RemovePage(index PageIndex) error {
 	return nil
 }
 
-// ToMessageList 转换为 MessageList
+// ToMessageList 返回统一的 MessageList（不创建副本）
 func (bc *BaseChapter) ToMessageList() *message.MessageList {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
+	return bc.msgList
+}
 
-	msgList := message.NewMessageList()
+// RemovePageRange 从 MessageList 中移除 Page 的节点范围，并保持前后连接
+func (bc *BaseChapter) RemovePageRange(page *Page) {
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
 
-	for _, index := range bc.ordered {
-		page := bc.pages[index]
-		// 直接将 Page 的 MessageList 添加进来
-		pageMsgs := page.ToMessageList()
-		msgList.AddMessageList(pageMsgs)
+	if page.head == nil || page.tail == nil {
+		return
 	}
 
-	return msgList
+	// 获取前驱和后继节点
+	prevNode := page.head.GetPrev()
+	nextNode := page.tail.GetNext()
+
+	// 连接前驱和后继
+	if prevNode != nil {
+		prevNode.SetNext(nextNode)
+	}
+	if nextNode != nil {
+		nextNode.SetPrev(prevNode)
+	}
+
+	// 更新 MessageList 的 head（如果移除的是头部）
+	if bc.msgList.GetHead() == page.head {
+		bc.msgList.SetHead(nextNode)
+	}
+
+	// 清空 Page 的引用
+	page.head = nil
+	page.tail = nil
+	page.chapter = nil
 }
 
 // Len 返回 Page 数量
@@ -156,6 +198,23 @@ func (ac *ActiveChapter) AddPage(page *Page, index PageIndex) ([]*Page, error) {
 
 	if _, exists := ac.pages[index]; exists {
 		return nil, fmt.Errorf("page with index %d already exists", index)
+	}
+
+	// 设置 Page 的 chapter 引用
+	page.chapter = ac.BaseChapter
+
+	// 将 Page 的所有 Node 添加到 MessageList
+	if page.head != nil && page.tail != nil {
+		// 检查 head 是否已经在 msgList 中
+		if ac.msgList.GetHead() != page.head {
+			// 遍历所有节点并添加到 msgList
+			for node := page.head; node != nil; node = node.GetNext() {
+				ac.msgList.AddNodeWithoutReset(node)
+				if node == page.tail {
+					break
+				}
+			}
+		}
 	}
 
 	ac.pages[index] = page
@@ -260,7 +319,8 @@ func (ac *ArchiveChapter) summarizePage(page *Page) (string, []EntrySummary, err
 	// 生成 Entry 级别摘要
 	entrySummaries := make([]EntrySummary, 0)
 
-	for _, entry := range page.Entries {
+	// 使用 GetEntries() 获取所有 Entry
+	for _, entry := range page.GetEntries() {
 		summary, err := entry.Summarize(ac.compactModel)
 		if err != nil {
 			// 如果摘要失败，使用简单摘要

@@ -2,11 +2,124 @@
 这是Memci的上下文管理设计文档
 
 ## 基本抽象
-- **Entry**: entry上下文系统最小单位，一个entry对应MessageList中的一个MessageNode
-- **Page**: page是上下文系统管理的基本单位，一个page逻辑上对应与用户的一次交互产生的多条entry(一条用户entry以及多条assistant或tool entry)，上下文系统对于上下文的卸载和召回以page为单位。
-- **Chapter**: chapter是一组相关page的集合，chapter对于LLM来说是不可见。chapter是上下文管理的关键，chapter能够将其拥有的所有页卸载出上下文窗口，并生成一个Contents Page放入上下文窗口
-- **Contents Page**: 目录页是上下文系统为LLM提供的压缩视图，LLM可以通过目录页看到被卸载出上下文窗口的Page的index，LLM可以通过index召回Page
-- **Segment**: Segment拥有一个或多个Chapter，Segment是提供给开发者从一个宏观视角组织上下文的一个抽象，目前上下文系统支持的Segment有 System Segment(系统提示词部分), Common Segment（用户交互上下文部分）
+- **MessageNode**: 消息链表的节点，包含消息内容和前后节点指针
+- **Entry**: entry 上下文系统最小单位，一个 entry 对应 MessageList 中的一个 MessageNode（Entry 持有 Node 的引用）
+- **Page**: page 是上下文系统管理的基本单位，采用**视图模式**，作为 Chapter.MessageList 中一段连续节点的视图。一个 page 逻辑上对应与用户的一次交互产生的多条 entry（一条用户 entry 以及多条 assistant 或 tool entry），上下文系统对于上下文的卸载和召回以 page 为单位
+- **Chapter**: chapter 是一组相关 page 的集合，维护**统一的 MessageList**。chapter 对于 LLM 来说是不可见，是上下文管理的关键。chapter 能够将其拥有的所有页卸载出上下文窗口，并生成一个 Contents Page 放入上下文窗口
+- **Contents Page**: 目录页是上下文系统为 LLM 提供的压缩视图，LLM 可以通过目录页看到被卸载出上下文窗口的 Page 的 index，LLM 可以通过 index 召回 Page
+- **Segment**: Segment 拥有一个或多个 Chapter，Segment 是提供给开发者从一个宏观视角组织上下文的一个抽象，目前上下文系统支持的 Segment 有 System Segment（系统提示词部分）、Common Segment（用户交互上下文部分）
+
+## 架构设计：视图模式
+
+### 核心设计理念
+
+传统设计中，每个 Page 拥有独立的 Entry 列表，每次调用 `ToMessageList()` 都会创建新的 MessageList 副本，导致：
+1. **数据冗余**：多份 MessageList 副本，内存占用高
+2. **连接断裂**：不同 Page 的 Node 之间无法正确连接
+3. **Detach 无效**：操作 Page.Entries 不会影响 MessageList
+
+新的**视图模式**设计解决了这些问题：
+- **单一数据源**：Chapter 维护统一的 MessageList
+- **Page 是视图**：Page 只是引用 MessageList 中的一段节点范围（head 到 tail）
+- **自动连接**：不同 Page 的 Node 自动形成连续链表
+- **Detach 可靠**：Page.Detach() 直接从 Chapter.MessageList 断开节点
+
+### 数据结构关系
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Chapter (BaseChapter)                                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  msgList: MessageList ──► [NodeA]↔[NodeB]↔[NodeC]↔[NodeD]↔[NodeE]│
+│                                        ▲          ▲          ▲   │
+│                                        │          │          │   │
+│  pages: map[PageIndex]*Page ────────┬──┴──────────┴──────────┘   │
+│                                     │                          │
+└─────────────────────────────────────┼──────────────────────────┘
+                                      │
+              ┌────────────────────────┴────────────────────────┐
+              │                                                 │
+              ▼                                                 ▼
+    ┌──────────────────┐                            ┌──────────────────┐
+    │ Page #1          │                            │ Page #2          │
+    ├──────────────────┤                            ├──────────────────┤
+    │ head = NodeA     │                            │ head = NodeC     │
+    │ tail = NodeB     │                            │ tail = NodeE     │
+    │ Entries (view)   │                            │ Entries (view)   │
+    │  └─ Entry1 (NodeA)│                            │  └─ Entry3 (NodeC)│
+    │  └─ Entry2 (NodeB)│                            │  └─ Entry4 (NodeD)│
+    └──────────────────┘                            │  └─ Entry5 (NodeE)│
+                                                   └──────────────────┘
+```
+
+### 关键方法
+
+#### Chapter.AddPage(page)
+```go
+// 1. 设置 Page 的 chapter 引用
+page.chapter = bc
+
+// 2. 将 Page 的所有 Node 添加到 msgList（不重置 next/prev）
+for _, entry := range page.Entries {
+    bc.msgList.AddNodeWithoutReset(entry.Node)
+}
+
+// 3. 设置 Page 的 head 和 tail
+page.head = page.Entries[0].Node
+page.tail = page.Entries[len(page.Entries)-1].Node
+```
+
+#### Chapter.ToMessageList()
+```go
+// 直接返回统一的 msgList（不创建副本）
+return bc.msgList
+```
+
+#### Chapter.RemovePageRange(page)
+```go
+// 1. 获取前驱和后继节点
+prevNode := page.head.GetPrev()  // 前一个 Page 的最后一个节点
+nextNode := page.tail.GetNext()  // 后一个 Page 的第一个节点
+
+// 2. 连接前驱和后继（跳过当前 Page 的所有节点）
+prevNode.SetNext(nextNode)
+nextNode.SetPrev(prevNode)
+
+// 3. 清空 Page 的引用
+page.head = nil
+page.tail = nil
+page.chapter = nil
+```
+
+#### Page.Detach()
+```go
+// 调用 Chapter 的 RemovePageRange 方法
+p.chapter.RemovePageRange(p)
+```
+
+### 视图模式的优势
+
+| 特性 | 传统模式 | 视图模式 |
+|------|---------|---------|
+| **数据源** | 每次创建新的 MessageList | Chapter 维护唯一的 MessageList |
+| **内存占用** | 多份副本，内存高 | 单一数据源，内存高效 |
+| **链表连接** | 每次 AddNode 重置指针 | Node 自动形成连续链表 |
+| **Detach 操作** | 操作 Page.Entries，不影响 MessageList | 直接从 MessageList 断开，立即生效 |
+| **数据一致性** | 多副本可能不一致 | 单一数据源，始终一致 |
+| **跨 Page 遍历** | 需要手动拼接 | 直接遍历 Chapter.msgList |
+
+### 序列化与持久化
+
+**序列化时**（Save）：
+1. 使用 `MessageNode.MarshalJSON()` 只序列化 msg 数据
+2. 不序列化 next/prev 指针
+3. 保存到存储
+
+**反序列化时**（Load）：
+1. 创建新的 Entry 和 MessageNode
+2. 调用 `rebuildNodeLinks()` 重建 Page 内部的链表连接
+3. 调用 `Chapter.AddPage()` 重新添加到 MessageList，重建跨 Page 的连接
 
 ## 上下文管理策略
 ### Segment层次
@@ -41,37 +154,77 @@ Segment将整个上下文分为 System Segment 和 Common Segement
 │                           层次结构                                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  Entry ──► Entry ──► Entry                                                   │
-│    │           │           │                                                │
-│    └───────────┴───────────┘                                                │
-│                │                                                            │
-│                ▼                                                            │
-│  ┌─────────────────────────────────┐                                        │
-│  │           Page                  │  ← 用户一次交互（用户entry + assistant）│
-│  │  ┌─────────────────────────┐   │                                        │
-│  │  │ Entry1 (User)           │   │                                        │
-│  │  │ Entry2 (Assistant)      │   │                                        │
-│  │  │ Entry3 (Tool)           │   │                                        │
-│  │  └─────────────────────────┘   │                                        │
-│  └─────────────────────────────────┘                                        │
-│                │                                                            │
-│                ▼                                                            │
-│  ┌─────────────────────────────────┐                                        │
-│  │         Chapter                 │  ← 管理多个 Page，可卸载并生成 Contents │
-│  │  ┌───┐ ┌───┐ ┌───┐ ┌───┐      │                                        │
-│  │  │P1 │ │P2 │ │P3 │ │P4 │ ...  │                                        │
-│  │  └───┘ └───┘ └───┘ └───┘      │                                        │
-│  └─────────────────────────────────┘                                        │
-│                │                                                            │
-│                ▼                                                            │
-│  ┌─────────────────────────────────┐                                        │
-│  │         Segment                 │  ← 宏观组织单位                        │
-│  │  ┌─────────────────────┐       │                                        │
-│  │  │ Chapter1 + Chapter2 │       │                                        │
-│  │  └─────────────────────┘       │                                        │
-│  └─────────────────────────────────┘                                        │
+│  MessageNode ◄──► MessageNode ◄──► MessageNode ◄──► MessageNode            │
+│       │                  │                  │                  │             │
+│       │                  │                  │                  │             │
+│  Entry 引用         Entry 引用         Entry 引用         Entry 引用       │
+│                                                                             │
+│  ┌─────────────────────────────────┐  ┌─────────────────────────────────┐  │
+│  │           Page #1 (视图)         │  │           Page #2 (视图)         │  │
+│  │  head ────────► 指向第一个 Node  │  │  head ────────► 指向第三个 Node  │  │
+│  │  tail ────────► 指向第二个 Node  │  │  tail ────────► 指向第四个 Node  │  │
+│  │  Entries (懒加载视图)            │  │  Entries (懒加载视图)            │  │
+│  └─────────────────────────────────┘  └─────────────────────────────────┘  │
+│           │                                   │                             │
+│           └───────────────┬───────────────────┘                             │
+│                           ▼                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    Chapter (BaseChapter)                            │   │
+│  │  ┌─────────────────────────────────────────────────────────────┐   │   │
+│  │  │           msgList: MessageList (统一数据源)                   │   │   │
+│  │  │  [NodeA] ◄──► [NodeB] ◄──► [NodeC] ◄──► [NodeD]              │   │   │
+│  │  │    ▲            ▲            ▲            ▲                   │   │   │
+│  │  │    └──Page#1───┘            └──Page#2───┘                   │   │   │
+│  │  └─────────────────────────────────────────────────────────────┘   │   │
+│  │                                                                     │   │
+│  │  pages: {0: Page#1, 1: Page#2, ...}                                │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                           │                                                 │
+│                           ▼                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                        Segment                                      │   │
+│  │  ┌─────────────────────────────────────────────────────────────┐   │   │
+│  │  │           Chapter1 + Chapter2 (不同类型的 Segment)            │   │   │
+│  │  └─────────────────────────────────────────────────────────────┘   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Page Detach 操作流程                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  初始状态:                                                                  │
+│  ┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────────┐            │
+│  │ NodeA   │ ◄──► │ NodeB   │ ◄──► │ NodeC   │ ◄──► │ NodeD   │            │
+│  │ (P1#1)  │      │ (P1#2)  │      │ (P2#1)  │      │ (P2#2)  │            │
+│  └─────────┘      └─────────┘      └─────────┘      └─────────┘            │
+│    ▲                                 ▲                                  ▲           │
+│    └──────── Page #1 ────────────────┘                                  │
+│                                      ▲                                   │
+│                                      └──────── Page #2 ───────────────────│
+│                                                                             │
+│  执行 Page #2.Detach():                                                   │
+│                                                                             │
+│  1. Page #2 调用 chapter.RemovePageRange(page)                              │
+│  2. 获取前驱节点 (NodeB) 和后继节点 (NodeD)                                │
+│  3. 连接前驱和后继: NodeB.next = NodeD, NodeD.prev = NodeB                │
+│  4. 清空 Page #2 的 head/tail 引用                                         │
+│                                                                             │
+│  结果状态:                                                                  │
+│  ┌─────────┐      ┌─────────┐                                            │
+│  │ NodeA   │ ◄──► │ NodeB   │ ◄═════════════════════════╗ (跳过 Page#2) │
+│  │ (P1#1)  │      │ (P1#2)  │                           ▼                  │
+│  └─────────┘      └─────────┘                    ┌─────────┐              │
+│                                                │ NodeD   │              │
+│                                                │ (P2#2)  │              │
+│                                                └─────────┘              │
+│                                                                             │
+│  Page #1: head=NodeA, tail=NodeB (保持不变)                               │
+│  Page #2: head=nil, tail=nil (已 Detach)                                  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                      上下文窗口布局 (Context Window)                         │

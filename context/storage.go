@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"memci/message"
 	"os"
 	"path/filepath"
 	"sync"
@@ -40,6 +41,8 @@ func (jc *JSONPageCodec) Decode(data []byte) (*Page, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode page: %w", err)
 	}
+
+	// Page 的 UnmarshalJSON 已经处理了链表连接重建
 	return &page, nil
 }
 
@@ -261,6 +264,27 @@ func (fs *FilePageStorage) Clear() error {
 	return nil
 }
 
+// cloneEntry 深拷贝 Entry（包括 Node 的数据）
+func cloneEntry(entry *Entry) *Entry {
+	// 创建新的 MessageNode，复制消息数据
+	msg := entry.Node.GetMsg()
+	newNode := message.CreateNode(msg.Role, msg.Content)
+	newNode.SetMsg(msg)
+
+	// 深拷贝 Metadata
+	metadata := make(map[string]string)
+	for k, v := range entry.Metadata {
+		metadata[k] = v
+	}
+
+	return &Entry{
+		ID:        entry.ID,
+		Node:      newNode,
+		Timestamp: entry.Timestamp,
+		Metadata:  metadata,
+	}
+}
+
 // MemoryPageStorage 内存存储实现（用于测试）
 type MemoryPageStorage struct {
 	mu    sync.RWMutex
@@ -279,16 +303,40 @@ func (ms *MemoryPageStorage) Save(page *Page, index PageIndex) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
-	// 深拷贝 Page
-	entries := make([]*Entry, len(page.Entries))
-	copy(entries, page.Entries)
+	// 深拷贝 Page（包括 Entry 和 Node）
+	entries := page.GetEntries()
+	copiedEntries := make([]*Entry, len(entries))
+	for i, entry := range entries {
+		copiedEntries[i] = cloneEntry(entry)
+	}
 
+	// 创建新的 Page，重建链表连接
 	pageCopy := &Page{
-		Entries:      entries,
+		Index:        page.Index,
 		Name:         page.Name,
 		MaxToken:     page.MaxToken,
 		Description:  page.Description,
 		CompactModel: page.CompactModel,
+	}
+
+	// 重建 head/tail 和链表连接
+	if len(copiedEntries) > 0 {
+		pageCopy.head = copiedEntries[0].Node
+		pageCopy.tail = copiedEntries[len(copiedEntries)-1].Node
+
+		for i := 0; i < len(copiedEntries); i++ {
+			currentNode := copiedEntries[i].Node
+			if i < len(copiedEntries)-1 {
+				currentNode.SetNext(copiedEntries[i+1].Node)
+			} else {
+				currentNode.SetNext(nil)
+			}
+			if i > 0 {
+				currentNode.SetPrev(copiedEntries[i-1].Node)
+			} else {
+				currentNode.SetPrev(nil)
+			}
+		}
 	}
 
 	ms.pages[index] = pageCopy
@@ -305,16 +353,39 @@ func (ms *MemoryPageStorage) Load(index PageIndex) (*Page, error) {
 		return nil, fmt.Errorf("page %d not found", index)
 	}
 
-	// 返回深拷贝
-	entries := make([]*Entry, len(page.Entries))
-	copy(entries, page.Entries)
+	// 返回深拷贝（包括 Entry 和 Node）
+	entries := page.GetEntries()
+	copiedEntries := make([]*Entry, len(entries))
+	for i, entry := range entries {
+		copiedEntries[i] = cloneEntry(entry)
+	}
 
 	pageCopy := &Page{
-		Entries:      entries,
+		Index:        page.Index,
 		Name:         page.Name,
 		MaxToken:     page.MaxToken,
 		Description:  page.Description,
 		CompactModel: page.CompactModel,
+	}
+
+	// 重建 head/tail 和链表连接
+	if len(copiedEntries) > 0 {
+		pageCopy.head = copiedEntries[0].Node
+		pageCopy.tail = copiedEntries[len(copiedEntries)-1].Node
+
+		for i := 0; i < len(copiedEntries); i++ {
+			currentNode := copiedEntries[i].Node
+			if i < len(copiedEntries)-1 {
+				currentNode.SetNext(copiedEntries[i+1].Node)
+			} else {
+				currentNode.SetNext(nil)
+			}
+			if i > 0 {
+				currentNode.SetPrev(copiedEntries[i-1].Node)
+			} else {
+				currentNode.SetPrev(nil)
+			}
+		}
 	}
 
 	return pageCopy, nil
