@@ -247,6 +247,11 @@ func (m *MessageList) AddMessageContent(role Role, content Content) *MessageList
 	return m
 }
 
+// Append adds a message (for compatibility with context package)
+func (m *MessageList) Append(role Role, content string) *MessageList {
+	return m.AddMessage(role, content)
+}
+
 // AddMessageList adds all messages from another MessageList
 func (m *MessageList) AddMessageList(other *MessageList) *MessageList {
 	for node := other.head; node != nil; node = node.next {
@@ -350,6 +355,11 @@ func (m *MessageList) GetNode() *MessageNode {
 
 // GetNext returns the next node
 func (n *MessageNode) GetNext() *MessageNode {
+	return n.next
+}
+
+// Next is an alias for GetNext for convenience
+func (n *MessageNode) Next() *MessageNode {
 	return n.next
 }
 

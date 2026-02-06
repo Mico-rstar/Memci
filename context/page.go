@@ -2,230 +2,470 @@ package context
 
 import (
 	"encoding/json"
-	"memci/llm"
-	"memci/message"
-	"strings"
+	"errors"
+	"fmt"
+	"time"
 )
 
-// Page 存储一组相关的 Entry（如一次对话）
-// 在视图模式中，Page 作为 Chapter.MessageList 中一段连续节点的视图
-type Page struct {
-	chapter     *BaseChapter        // 所属 Chapter
-	head        *message.MessageNode // 视图的首节点
-	tail        *message.MessageNode // 视图的尾节点
-	Index       PageIndex
-	Name        string
-	MaxToken    int  // -1 表示不限制最大 token 数
-	Description string
-	CompactModel *llm.CompactModel
-}
+// PageLifecycle Page的生命周期状态
+type PageLifecycle int
 
-// NewPage 创建新的 Page
-func NewPage(index PageIndex, name string, maxToken int, description string, compactModel *llm.CompactModel) *Page {
-	return &Page{
-		Index:        index,
-		Name:         name,
-		MaxToken:     maxToken,
-		Description:  description,
-		CompactModel: compactModel,
-		head:         nil,
-		tail:         nil,
+const (
+	// Active Page在上下文窗口内，对Agent可见
+	Active PageLifecycle = iota
+	// HotArchived Page不在上下文窗口内，但祖先Page是Active的，可通过展开恢复
+	HotArchived
+	// ColdArchived Page已脱离上下文系统，需通过外部记忆系统重新注入
+	ColdArchived
+)
+
+// String 返回生命周期的字符串表示
+func (l PageLifecycle) String() string {
+	switch l {
+	case Active:
+		return "Active"
+	case HotArchived:
+		return "HotArchived"
+	case ColdArchived:
+		return "ColdArchived"
+	default:
+		return "Unknown"
 	}
 }
 
-// AddEntry 添加 Entry 到 Page（在添加到 Chapter 前）
-// Entry 的 Node 会被添加到 Page 的内部链表中
-// 当 Page 被添加到 Chapter 时，所有 Node 会被连接到 Chapter.MessageList
-func (p *Page) AddEntry(entry *Entry) {
-	node := entry.Node
+// PageVisibility Page的可见性状态（仅当Lifecycle为Active时有效）
+type PageVisibility int
 
-	// 如果是第一个 Entry，设置 head
-	if p.head == nil {
-		p.head = node
-		p.tail = node
-		return
+const (
+	// Expanded Page处于展开状态
+	// 对于ContentsPage：子节点可见
+	// 对于DetailPage：detail内容可见
+	Expanded PageVisibility = iota
+	// Hidden Page处于隐藏状态
+	// 对于ContentsPage：自身可见，但子节点不可见
+	// 对于DetailPage：description可见，但detail不可见
+	Hidden
+)
+
+// String 返回可见性的字符串表示
+func (v PageVisibility) String() string {
+	switch v {
+	case Expanded:
+		return "Expanded"
+	case Hidden:
+		return "Hidden"
+	default:
+		return "Unknown"
 	}
-
-	// 否则添加到 tail 后面，并更新 tail
-	p.tail.SetNext(node)
-	node.SetPrev(p.tail)
-	p.tail = node
 }
 
-// Detach 从 MessageList 中分离此 Page 的所有节点，并保持前后 Page 的连接
-func (p *Page) Detach() {
-	if p.chapter == nil || p.head == nil || p.tail == nil {
-		return
-	}
+// PageIndex Page的唯一索引标识
+// 格式：对于单Segment为整数如 "0", "1"
+//       对于多Segment使用前缀如 "sys-0", "usr-0"
+type PageIndex string
 
-	// 调用 Chapter 的 RemovePageRange 方法
-	p.chapter.RemovePageRange(p)
+// Page 页面接口，所有页面类型必须实现此接口
+type Page interface {
+	// 基本信息
+	GetIndex() PageIndex           // 获取Page的唯一索引
+	GetName() string               // 获取Page名称
+	GetDescription() string        // 获取Page描述
+	GetLifecycle() PageLifecycle   // 获取生命周期状态
+	GetVisibility() PageVisibility // 获取可见性状态
+
+	// 状态变更
+	SetVisibility(visibility PageVisibility) error // 设置可见性（Expanded/Hidden）
+	SetLifecycle(lifecycle PageLifecycle) error    // 设置生命周期状态
+
+	// 父子关系
+	GetParent() PageIndex               // 获取父Page的索引，根Page返回空字符串
+	SetParent(parentIndex PageIndex) error // 设置父Page
+
+	// 更新字段
+	SetDescription(description string) error
+	SetName(name string) error
+
+	// 序列化/反序列化（用于PageStorage）
+	Marshal() ([]byte, error)  // 序列化为字节
+	Unmarshal(data []byte) error // 从字节反序列化
 }
 
-// Head 返回 Page 的首节点
-func (p *Page) Head() *message.MessageNode {
-	return p.head
+// DetailPage 叶子节点页面，存储原始的交互消息
+type DetailPage struct {
+	// 基本信息
+	index       PageIndex      // 唯一索引
+	name        string         // 页面名称
+	description string         // 页面描述（摘要）
+	lifecycle   PageLifecycle // 生命周期状态
+	visibility  PageVisibility // 可见性状态
+
+	// 层级关系
+	parent PageIndex // 父Page索引，空字符串表示根
+
+	// 核心内容
+	detail string // 原始消息内容（合并后的完整对话）
+
+	// 元数据
+	createdAt   time.Time // 创建时间
+	updatedAt   time.Time // 更新时间
 }
 
-// Tail 返回 Page 的尾节点
-func (p *Page) Tail() *message.MessageNode {
-	return p.tail
+// detailPageJSON 用于JSON序列化的内部结构
+type detailPageJSON struct {
+	Index        string         `json:"index"`
+	Name         string         `json:"name"`
+	Description  string         `json:"description"`
+	Lifecycle    PageLifecycle  `json:"lifecycle"`
+	Visibility   PageVisibility `json:"visibility"`
+	Parent       string         `json:"parent"`
+	Detail       string         `json:"detail"`
+	CreatedAt    time.Time      `json:"createdAt"`
+	UpdatedAt    time.Time      `json:"updatedAt"`
 }
 
-// GetEntries 获取所有 Entry（懒加载：从 head 遍历到 tail）
-func (p *Page) GetEntries() []*Entry {
-	if p.head == nil {
-		return []*Entry{}
+// NewDetailPage 创建新的DetailPage
+func NewDetailPage(name, description, detail string, parentIndex PageIndex) (*DetailPage, error) {
+	if name == "" {
+		return nil, errors.New("name cannot be empty")
 	}
-
-	var entries []*Entry
-	for node := p.head; node != nil; node = node.GetNext() {
-		entries = append(entries, &Entry{
-			Node: node,
-		})
-		if node == p.tail {
-			break
-		}
-	}
-	return entries
+	now := time.Now()
+	return &DetailPage{
+		name:        name,
+		description: description,
+		detail:      detail,
+		parent:      parentIndex,
+		lifecycle:   Active,
+		visibility:  Hidden, // 默认只展示description
+		createdAt:   now,
+		updatedAt:   now,
+	}, nil
 }
 
-// Len 返回 Entry 数量（计算链表长度）
-func (p *Page) Len() int {
-	if p.head == nil {
-		return 0
-	}
-
-	count := 0
-	for node := p.head; node != nil; node = node.GetNext() {
-		count++
-		if node == p.tail {
-			break
-		}
-	}
-	return count
+// GetIndex 获取Page索引
+func (p *DetailPage) GetIndex() PageIndex {
+	return p.index
 }
 
-// Summarize 生成 Page 的摘要
-func (p *Page) Summarize() string {
-	if p.Description != "" {
-		return p.Description
-	}
-
-	// 遍历节点生成摘要
-	var parts []string
-	for node := p.head; node != nil; node = node.GetNext() {
-		msg := node.GetMsg()
-		preview := msg.Content.String()
-		if len(preview) > 50 {
-			preview = preview[:50] + "..."
-		}
-		parts = append(parts, msg.Role+": "+preview)
-		if node == p.tail {
-			break
-		}
-	}
-
-	return strings.Join(parts, " | ")
+// GetName 获取Page名称
+func (p *DetailPage) GetName() string {
+	return p.name
 }
 
-// ToMessageList 将 Page 转换为 MessageList（视图方法）
-func (p *Page) ToMessageList() *message.MessageList {
-	if p.head == nil {
-		return message.NewMessageList()
-	}
-
-	msgList := message.NewMessageList()
-	for node := p.head; node != nil; node = node.GetNext() {
-		msgList.AddNodeWithoutReset(node)
-		if node == p.tail {
-			break
-		}
-	}
-	return msgList
+// GetDescription 获取Page描述
+func (p *DetailPage) GetDescription() string {
+	return p.description
 }
 
-// EstimateTokens 估算 Page 的 token 数
-func (p *Page) EstimateTokens() int {
-	if p.head == nil {
-		return 0
-	}
-
-	totalChars := 0
-	for node := p.head; node != nil; node = node.GetNext() {
-		totalChars += len(node.GetMsg().Content.String())
-		if node == p.tail {
-			break
-		}
-	}
-	// 粗略估算：token 数 ≈ 字符数 / 4
-	return totalChars / 4
+// GetDetail 获取原始消息内容
+func (p *DetailPage) GetDetail() string {
+	return p.detail
 }
 
-// jsonPage 用于 JSON 序列化的临时结构
-type jsonPage struct {
-	Entries      []*Entry
-	Index        PageIndex
-	Name         string
-	MaxToken     int
-	Description  string
-	CompactModel *llm.CompactModel
+// SetDetail 更新原始消息内容
+func (p *DetailPage) SetDetail(detail string) error {
+	p.detail = detail
+	p.updatedAt = time.Now()
+	return nil
 }
 
-// MarshalJSON 实现 json.Marshaler 接口
-// 序列化时将 head/tail 转换为 Entries 列表
-func (p *Page) MarshalJSON() ([]byte, error) {
-	// 创建临时结构用于序列化
-	jp := jsonPage{
-		Entries:      p.GetEntries(),
-		Index:        p.Index,
-		Name:         p.Name,
-		MaxToken:     p.MaxToken,
-		Description:  p.Description,
-		CompactModel: p.CompactModel,
+// SetVisibility 设置可见性
+func (p *DetailPage) SetVisibility(visibility PageVisibility) error {
+	p.visibility = visibility
+	p.updatedAt = time.Now()
+	return nil
+}
+
+// SetLifecycle 设置生命周期
+func (p *DetailPage) SetLifecycle(lifecycle PageLifecycle) error {
+	p.lifecycle = lifecycle
+	p.updatedAt = time.Now()
+	return nil
+}
+
+// GetParent 获取父Page索引
+func (p *DetailPage) GetParent() PageIndex {
+	return p.parent
+}
+
+// SetParent 设置父Page
+func (p *DetailPage) SetParent(parentIndex PageIndex) error {
+	p.parent = parentIndex
+	p.updatedAt = time.Now()
+	return nil
+}
+
+// GetLifecycle 获取生命周期状态
+func (p *DetailPage) GetLifecycle() PageLifecycle {
+	return p.lifecycle
+}
+
+// GetVisibility 获取可见性状态
+func (p *DetailPage) GetVisibility() PageVisibility {
+	return p.visibility
+}
+
+// SetDescription 设置描述
+func (p *DetailPage) SetDescription(description string) error {
+	p.description = description
+	p.updatedAt = time.Now()
+	return nil
+}
+
+// SetName 设置名称
+func (p *DetailPage) SetName(name string) error {
+	if name == "" {
+		return errors.New("name cannot be empty")
 	}
-	return json.Marshal(jp)
+	p.name = name
+	p.updatedAt = time.Now()
+	return nil
 }
 
-// UnmarshalJSON 实现 json.Unmarshaler 接口
-// 反序列化时从 Entries 重建 head/tail 和链表连接
-func (p *Page) UnmarshalJSON(data []byte) error {
-	var jp jsonPage
-	if err := json.Unmarshal(data, &jp); err != nil {
+// SetIndex 设置索引（通常由ContextSystem调用）
+func (p *DetailPage) SetIndex(index PageIndex) {
+	p.index = index
+}
+
+// Marshal 序列化
+func (p *DetailPage) Marshal() ([]byte, error) {
+	data := detailPageJSON{
+		Index:        string(p.index),
+		Name:         p.name,
+		Description:  p.description,
+		Lifecycle:    p.lifecycle,
+		Visibility:   p.visibility,
+		Parent:       string(p.parent),
+		Detail:       p.detail,
+		CreatedAt:    p.createdAt,
+		UpdatedAt:    p.updatedAt,
+	}
+	return json.Marshal(data)
+}
+
+// Unmarshal 反序列化
+func (p *DetailPage) Unmarshal(data []byte) error {
+	var jsonData detailPageJSON
+	if err := json.Unmarshal(data, &jsonData); err != nil {
 		return err
 	}
+	p.index = PageIndex(jsonData.Index)
+	p.name = jsonData.Name
+	p.description = jsonData.Description
+	p.lifecycle = jsonData.Lifecycle
+	p.visibility = jsonData.Visibility
+	p.parent = PageIndex(jsonData.Parent)
+	p.detail = jsonData.Detail
+	p.createdAt = jsonData.CreatedAt
+	p.updatedAt = jsonData.UpdatedAt
+	return nil
+}
 
-	// 复制基本字段
-	p.Index = jp.Index
-	p.Name = jp.Name
-	p.MaxToken = jp.MaxToken
-	p.Description = jp.Description
-	p.CompactModel = jp.CompactModel
+// ContentsPage 目录节点页面，存储子页面的摘要索引
+type ContentsPage struct {
+	// 基本信息
+	index       PageIndex      // 唯一索引
+	name        string         // 页面名称
+	description string         // 页面描述（目录摘要）
+	lifecycle   PageLifecycle // 生命周期状态
+	visibility  PageVisibility // 可见性状态
 
-	// 从 Entries 重建 head/tail 和链表连接
-	if len(jp.Entries) > 0 {
-		p.head = jp.Entries[0].Node
-		p.tail = jp.Entries[len(jp.Entries)-1].Node
+	// 层级关系
+	parent PageIndex // 父Page索引，空字符串表示根
 
-		// 重建 Node 的链表连接
-		for i := 0; i < len(jp.Entries); i++ {
-			currentNode := jp.Entries[i].Node
+	// 子页面管理
+	children []PageIndex // 子Page索引列表（有序）
 
-			// 设置 next 指针
-			if i < len(jp.Entries)-1 {
-				currentNode.SetNext(jp.Entries[i+1].Node)
-			} else {
-				currentNode.SetNext(nil)
-			}
+	// 元数据
+	createdAt time.Time // 创建时间
+	updatedAt time.Time // 更新时间
+}
 
-			// 设置 prev 指针
-			if i > 0 {
-				currentNode.SetPrev(jp.Entries[i-1].Node)
-			} else {
-				currentNode.SetPrev(nil)
-			}
+// contentsPageJSON 用于JSON序列化的内部结构
+type contentsPageJSON struct {
+	Index       string         `json:"index"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Lifecycle   PageLifecycle  `json:"lifecycle"`
+	Visibility  PageVisibility `json:"visibility"`
+	Parent      string         `json:"parent"`
+	Children    []string       `json:"children"`
+	CreatedAt   time.Time      `json:"createdAt"`
+	UpdatedAt   time.Time      `json:"updatedAt"`
+}
+
+// NewContentsPage 创建新的ContentsPage
+func NewContentsPage(name, description string, parentIndex PageIndex) (*ContentsPage, error) {
+	if name == "" {
+		return nil, errors.New("name cannot be empty")
+	}
+	now := time.Now()
+	return &ContentsPage{
+		name:        name,
+		description: description,
+		parent:      parentIndex,
+		lifecycle:   Active,
+		visibility:  Hidden, // 默认只展示description
+		children:    make([]PageIndex, 0),
+		createdAt:   now,
+		updatedAt:   now,
+	}, nil
+}
+
+// GetIndex 获取Page索引
+func (p *ContentsPage) GetIndex() PageIndex {
+	return p.index
+}
+
+// GetName 获取Page名称
+func (p *ContentsPage) GetName() string {
+	return p.name
+}
+
+// GetDescription 获取Page描述
+func (p *ContentsPage) GetDescription() string {
+	return p.description
+}
+
+// SetVisibility 设置可见性
+func (p *ContentsPage) SetVisibility(visibility PageVisibility) error {
+	p.visibility = visibility
+	p.updatedAt = time.Now()
+	return nil
+}
+
+// SetLifecycle 设置生命周期
+func (p *ContentsPage) SetLifecycle(lifecycle PageLifecycle) error {
+	p.lifecycle = lifecycle
+	p.updatedAt = time.Now()
+	return nil
+}
+
+// GetParent 获取父Page索引
+func (p *ContentsPage) GetParent() PageIndex {
+	return p.parent
+}
+
+// SetParent 设置父Page
+func (p *ContentsPage) SetParent(parentIndex PageIndex) error {
+	p.parent = parentIndex
+	p.updatedAt = time.Now()
+	return nil
+}
+
+// GetLifecycle 获取生命周期状态
+func (p *ContentsPage) GetLifecycle() PageLifecycle {
+	return p.lifecycle
+}
+
+// GetVisibility 获取可见性状态
+func (p *ContentsPage) GetVisibility() PageVisibility {
+	return p.visibility
+}
+
+// SetDescription 设置描述
+func (p *ContentsPage) SetDescription(description string) error {
+	p.description = description
+	p.updatedAt = time.Now()
+	return nil
+}
+
+// SetName 设置名称
+func (p *ContentsPage) SetName(name string) error {
+	if name == "" {
+		return errors.New("name cannot be empty")
+	}
+	p.name = name
+	p.updatedAt = time.Now()
+	return nil
+}
+
+// SetIndex 设置索引（通常由ContextSystem调用）
+func (p *ContentsPage) SetIndex(index PageIndex) {
+	p.index = index
+}
+
+// Marshal 序列化
+func (p *ContentsPage) Marshal() ([]byte, error) {
+	children := make([]string, len(p.children))
+	for i, child := range p.children {
+		children[i] = string(child)
+	}
+	data := contentsPageJSON{
+		Index:       string(p.index),
+		Name:        p.name,
+		Description: p.description,
+		Lifecycle:   p.lifecycle,
+		Visibility:  p.visibility,
+		Parent:      string(p.parent),
+		Children:    children,
+		CreatedAt:   p.createdAt,
+		UpdatedAt:   p.updatedAt,
+	}
+	return json.Marshal(data)
+}
+
+// Unmarshal 反序列化
+func (p *ContentsPage) Unmarshal(data []byte) error {
+	var jsonData contentsPageJSON
+	if err := json.Unmarshal(data, &jsonData); err != nil {
+		return err
+	}
+	p.index = PageIndex(jsonData.Index)
+	p.name = jsonData.Name
+	p.description = jsonData.Description
+	p.lifecycle = jsonData.Lifecycle
+	p.visibility = jsonData.Visibility
+	p.parent = PageIndex(jsonData.Parent)
+	p.children = make([]PageIndex, len(jsonData.Children))
+	for i, child := range jsonData.Children {
+		p.children[i] = PageIndex(child)
+	}
+	p.createdAt = jsonData.CreatedAt
+	p.updatedAt = jsonData.UpdatedAt
+	return nil
+}
+
+// AddChild 添加子页面
+func (p *ContentsPage) AddChild(childIndex PageIndex) error {
+	// 检查是否已存在
+	for _, child := range p.children {
+		if child == childIndex {
+			return fmt.Errorf("child %s already exists", childIndex)
 		}
 	}
-
+	p.children = append(p.children, childIndex)
+	p.updatedAt = time.Now()
 	return nil
+}
+
+// RemoveChild 移除子页面
+func (p *ContentsPage) RemoveChild(childIndex PageIndex) error {
+	for i, child := range p.children {
+		if child == childIndex {
+			p.children = append(p.children[:i], p.children[i+1:]...)
+			p.updatedAt = time.Now()
+			return nil
+		}
+	}
+	return fmt.Errorf("child %s not found", childIndex)
+}
+
+// GetChildren 获取所有子页面索引
+func (p *ContentsPage) GetChildren() []PageIndex {
+	return p.children
+}
+
+// HasChild 检查是否包含指定子页面
+func (p *ContentsPage) HasChild(childIndex PageIndex) bool {
+	for _, child := range p.children {
+		if child == childIndex {
+			return true
+		}
+	}
+	return false
+}
+
+// ChildCount 获取子页面数量
+func (p *ContentsPage) ChildCount() int {
+	return len(p.children)
 }
