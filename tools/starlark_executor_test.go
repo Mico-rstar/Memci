@@ -264,3 +264,26 @@ func equalMaps(a, b map[string]interface{}) bool {
 	}
 	return true
 }
+
+func TestExecCode(t *testing.T) {
+	code := `
+# 在 usr-1 下创建新的详情页记录用户的要求
+new_index = create_detail_page(
+    name="natural_tone",
+    description="用户要求使用自然的语气交流",
+    detail="用户要求以后用自然的语气和他交流。",
+    parent_index="usr-1"
+)
+
+__result__ = "已创建笔记页面"
+	`
+
+	exec := NewExecutor(starlark.StringDict{})
+	result, err := exec.Execute(code)
+	if err != nil {
+		t.Errorf("Executor.Execute() error = %v", err)
+	}
+	if result != "已创建笔记页面 usr-1-natural_tone" {
+		t.Errorf("Executor.Execute() = %v, want '已创建笔记页面 usr-1-natural_tone'", result)
+	}
+}

@@ -226,3 +226,60 @@ func (cm *ContextManager) ListSegments() ([]Segment, error) {
 
 	return cm.agent.ListSegments()
 }
+
+// GetAgentContext 获取 AgentContext（用于工具调用）
+func (cm *ContextManager) GetAgentContext() *AgentContext {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	return cm.agent
+}
+
+// ============ 系统级操作（绕过权限检查） ============
+
+// CreateDetailPageSystem 系统级创建 DetailPage（绕过权限检查）
+func (cm *ContextManager) CreateDetailPageSystem(
+	name, description, detail string,
+	parentIndex PageIndex,
+) (PageIndex, error) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	return cm.system.createDetailPageInternal(name, description, detail, parentIndex)
+}
+
+// ExpandDetailsSystem 系统级展开 Page（绕过权限检查）
+func (cm *ContextManager) ExpandDetailsSystem(pageIndex PageIndex) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	page, err := cm.system.GetPage(pageIndex)
+	if err != nil {
+		return err
+	}
+
+	page.SetVisibility(Expanded)
+
+	// 持久化更新
+	if cm.system.storage != nil {
+		cm.system.storage.Save(page)
+	}
+
+	return nil
+}
+
+// GetSegmentSystem 系统级获取 Segment（绕过权限检查）
+func (cm *ContextManager) GetSegmentSystem(id SegmentID) (*Segment, error) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	return cm.system.getSegmentInternal(id)
+}
+
+// ExportToFile 将当前ContextWindow导出到文件
+func (cm *ContextManager) ExportToFile(outputDir string, turn int) (string, error) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	return cm.window.ExportToFile(outputDir, turn)
+}

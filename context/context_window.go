@@ -2,7 +2,10 @@ package context
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"memci/message"
 )
@@ -46,7 +49,11 @@ func (cw *ContextWindow) GenerateMessageList() (*message.MessageList, error) {
 			// 在最外层包裹 ```markdown ... ``` 提醒Agent这是markdown格式
 			wrappedContent := fmt.Sprintf("```markdown\n%s\n```", content)
 			// 为每个Segment创建一个消息节点
-			messageList.Append(message.System, wrappedContent)
+			if segment.GetType() == SystemSegment {
+				messageList.Append(message.System, wrappedContent)
+			} else {
+				messageList.Append(message.User, wrappedContent)
+			}
 		}
 	}
 
@@ -77,32 +84,33 @@ func (cw *ContextWindow) renderPageRecursive(page Page, depth int) string {
 
 	switch p := page.(type) {
 	case *DetailPage:
-		// DetailPage: ### [索引] 名称: 描述
+		// DetailPage: ### [索引] 名称: 描述 [标记]
 		builder.WriteString(fmt.Sprintf("%s [%s] %s", heading, pageIndex, pageName))
 		if pageDesc != "" {
 			builder.WriteString(fmt.Sprintf(": %s", pageDesc))
 		}
-		builder.WriteString("\n")
 
 		// 如果Expanded，显示detail内容
 		if visibility == Expanded && p.GetDetail() != "" {
 			// [Hide] 标记在外围，detail 内容用代码块包裹避免内部 markdown 语法冲突
+			builder.WriteString("\n")
 			builder.WriteString(fmt.Sprintf("[Hide]\n~~~\n%s\n~~~\n", p.GetDetail()))
 		} else if visibility == Hidden && p.GetDetail() != "" {
 			// Hidden 状态但有 detail 内容，显示 [Expand] 提示
 			builder.WriteString(" ([Expand]...)")
 		}
+		builder.WriteString("\n")
 
 	case *ContentsPage:
-		// ContentsPage: ### [索引] 名称: 描述
+		// ContentsPage: ### [索引] 名称: 描述 [标记]
 		builder.WriteString(fmt.Sprintf("%s [%s] %s", heading, pageIndex, pageName))
 		if pageDesc != "" {
 			builder.WriteString(fmt.Sprintf(": %s", pageDesc))
 		}
-		builder.WriteString("\n")
 
 		// 如果Expanded，递归渲染子节点
 		if visibility == Expanded {
+			builder.WriteString("\n")
 			children := p.GetChildren()
 			if len(children) > 0 {
 				for _, childIndex := range children {
@@ -121,6 +129,9 @@ func (cw *ContextWindow) renderPageRecursive(page Page, depth int) string {
 		} else if visibility != Expanded && len(p.GetChildren()) > 0 {
 			// Hidden 状态但有子页面，显示 [Expand] 提示
 			builder.WriteString(fmt.Sprintf(" (%d [Expand]...)", len(p.GetChildren())))
+			builder.WriteString("\n")
+		} else {
+			builder.WriteString("\n")
 		}
 	}
 
@@ -235,4 +246,166 @@ func (cw *ContextWindow) findPagesToCollapse(rootIndex PageIndex) []PageIndex {
 // HideDetails 隐藏Page详情（代理到ContextSystem内部方法）
 func (cw *ContextWindow) HideDetails(pageIndex PageIndex) error {
 	return cw.system.hideDetailsInternal(pageIndex)
+}
+
+// ExportToFile 将当前ContextWindow导出到文件
+// 生成人类可读的markdown格式，包含所有Page的结构和内容
+func (cw *ContextWindow) ExportToFile(outputDir string, turn int) (string, error) {
+	// 确保输出目录存在
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// 生成文件名：context_snapshot_turn_<turn>_<timestamp>.md
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("context_snapshot_turn_%d_%s.md", turn, timestamp)
+	filepath := filepath.Join(outputDir, filename)
+
+	// 生成内容
+	content := cw.generateHumanReadableContent(turn, timestamp)
+
+	// 写入文件
+	if err := os.WriteFile(filepath, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("failed to write snapshot file: %w", err)
+	}
+
+	return filepath, nil
+}
+
+// generateHumanReadableContent 生成人类可读的ContextWindow内容
+func (cw *ContextWindow) generateHumanReadableContent(turn int, timestamp string) string {
+	var builder strings.Builder
+
+	// 头部信息
+	builder.WriteString("# ContextWindow Snapshot\n\n")
+	builder.WriteString(fmt.Sprintf("**Turn**: %d\n", turn))
+	builder.WriteString(fmt.Sprintf("**Timestamp**: %s\n\n", timestamp))
+	builder.WriteString("---\n\n")
+
+	// 获取所有Segment
+	segments, err := cw.system.ListSegments()
+	if err != nil {
+		builder.WriteString(fmt.Sprintf("*Error listing segments: %v*\n\n", err))
+		return builder.String()
+	}
+
+	// 渲染每个Segment
+	for _, segment := range segments {
+		rootIndex := segment.GetRootIndex()
+		if rootIndex == "" {
+			continue
+		}
+
+		// Segment信息
+		builder.WriteString(fmt.Sprintf("## Segment: %s\n\n", segment.GetID()))
+		builder.WriteString(fmt.Sprintf("**Type**: %s\n", segment.GetType()))
+		builder.WriteString(fmt.Sprintf("**Permission**: %s\n\n", segment.GetPermission()))
+
+		// 递归渲染页面树
+		rootPage, err := cw.system.GetPage(rootIndex)
+		if err != nil {
+			builder.WriteString(fmt.Sprintf("*Error getting root page: %v*\n\n", err))
+			continue
+		}
+
+		content := cw.renderPageForHuman(rootPage, 0)
+		if content != "" {
+			builder.WriteString(content)
+		}
+
+		builder.WriteString("\n")
+	}
+
+	// Token估算
+	tokens, err := cw.EstimateTokens()
+	if err == nil {
+		builder.WriteString("---\n\n")
+		builder.WriteString(fmt.Sprintf("**Estimated Tokens**: %d\n", tokens))
+	}
+
+	return builder.String()
+}
+
+// renderPageForHuman 为人类可读格式渲染页面（不包含markdown代码块包裹）
+func (cw *ContextWindow) renderPageForHuman(page Page, depth int) string {
+	var builder strings.Builder
+
+	visibility := page.GetVisibility()
+	lifecycle := page.GetLifecycle()
+
+	// 只渲染Active状态的页面
+	if lifecycle != Active {
+		return ""
+	}
+
+	// 生成markdown标题级别
+	headingLevel := depth + 3
+	heading := strings.Repeat("#", headingLevel)
+
+	// 格式：### [索引] 名称: 描述
+	pageIndex := page.GetIndex()
+	pageName := page.GetName()
+	pageDesc := page.GetDescription()
+
+	switch p := page.(type) {
+	case *DetailPage:
+		builder.WriteString(fmt.Sprintf("%s [%s] %s", heading, pageIndex, pageName))
+		if pageDesc != "" {
+			builder.WriteString(fmt.Sprintf(": %s", pageDesc))
+		}
+
+		// 状态标记
+		if visibility == Expanded {
+			builder.WriteString(" **[Expanded]**")
+		} else {
+			builder.WriteString(" **[Hidden]**")
+		}
+
+		// 如果Expanded，显示detail内容
+		if visibility == Expanded && p.GetDetail() != "" {
+			builder.WriteString("\n\n")
+			builder.WriteString("```\n")
+			builder.WriteString(p.GetDetail())
+			builder.WriteString("\n```")
+		}
+		builder.WriteString("\n\n")
+
+	case *ContentsPage:
+		builder.WriteString(fmt.Sprintf("%s [%s] %s", heading, pageIndex, pageName))
+		if pageDesc != "" {
+			builder.WriteString(fmt.Sprintf(": %s", pageDesc))
+		}
+
+		children := p.GetChildren()
+		if len(children) > 0 {
+			builder.WriteString(fmt.Sprintf(" **(%d children)**", len(children)))
+		}
+
+		// 状态标记
+		if visibility == Expanded {
+			builder.WriteString(" **[Expanded]**")
+		} else {
+			builder.WriteString(" **[Hidden]**")
+		}
+
+		builder.WriteString("\n\n")
+
+		// 如果Expanded，递归渲染子节点
+		if visibility == Expanded {
+			for _, childIndex := range children {
+				childPage, err := cw.system.GetPage(childIndex)
+				if err != nil {
+					builder.WriteString(fmt.Sprintf("*Error: cannot get child %s*\n\n", childIndex))
+					continue
+				}
+
+				childContent := cw.renderPageForHuman(childPage, depth+1)
+				if childContent != "" {
+					builder.WriteString(childContent)
+				}
+			}
+		}
+	}
+
+	return builder.String()
 }

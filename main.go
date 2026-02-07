@@ -2,27 +2,35 @@ package main
 
 import (
 	"fmt"
+	"os"
+
+	"memci/cli"
 	"memci/config"
-	"memci/llm"
 	"memci/logger"
-	"memci/message"
-	"memci/tools"
 )
 
 func main() {
-	cfg := config.LoadConfig(".env")
-	lg := logger.NewNoOpLogger()
+	// 加载配置
+	cfg := config.LoadConfig("config.toml")
 
-	model := llm.NewModel(cfg, lg, llm.ModelQwenFlash, *tools.NewToolList())
-
-	msgs := message.NewMessageList().
-		AddMessage(message.User, "你好")
-
-	resp, err := model.Process(*msgs)
+	// 创建 logger
+	lg, err := logger.New(cfg.Log)
 	if err != nil {
-		fmt.Println("Error:", err)
-		return
+		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
+		os.Exit(1)
 	}
 
-	fmt.Println(resp.Content)
+	// 打印启动信息
+	lg.Info("Starting Memci Agent System",
+		logger.String("version", "1.0.0"),
+		logger.String("log_level", cfg.Log.Level))
+
+	// 创建并运行 CLI
+	c := cli.NewCLI(cfg, lg)
+
+	if err := c.Run(); err != nil {
+		lg.Error("CLI error", logger.Err(err))
+		fmt.Fprintf(os.Stderr, "\n❌ Fatal error: %v\n", err)
+		os.Exit(1)
+	}
 }

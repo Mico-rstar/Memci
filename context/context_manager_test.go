@@ -308,40 +308,74 @@ func TestContextManager_GenerateMessageList(t *testing.T) {
 
 	// 获取用户段的root索引
 	usrSeg, _ := cm.GetSegment("usr")
-	parentIndex := usrSeg.GetRootIndex()
+	rootIndex := usrSeg.GetRootIndex()
 
-	// 创建一些子页面
-	child1, err := cm.CreateDetailPage("Child 1", "Child 1 description", "Detail 1", parentIndex)
-	child2, err := cm.CreateDetailPage("Child 2", "Child 2 description", "Detail 2", parentIndex)
-	if err != nil {
-		t.Fatalf("CreateDetailPage failed: %v", err)
-	}
+	// 构建复杂的 Page 树结构：
+	// usr root (ContentsPage)
+	// ├── conversations (ContentsPage) - Expanded
+	// │   ├── greeting (DetailPage) - Expanded
+	// │   └── question (DetailPage) - Hidden
+	// ├── projects (ContentsPage) - Hidden
+	// │   ├── memci (DetailPage)
+	// │   └── ai_agent (DetailPage)
+	// ├── notes (ContentsPage) - Expanded
+	// │   ├── design_idea (DetailPage) - Expanded
+	// │   └── archive (ContentsPage) - Hidden
+	// │       └── old_note (DetailPage)
+	// └── quick_thought (DetailPage) - Expanded
 
-	cp, err := cm.CreateContentsPage("economy", "something about economic talk", parentIndex, child1, child2)
-	if err != nil {
-		t.Fatalf("CreateContentsPage failed: %v", err)
-	}
-	err = cm.ExpandDetails(cp)
-	if err != nil {
-		t.Fatalf("ExpandDetails failed: %v", err)
-	}
+	// 1. conversations 分支 (ContentsPage，展开)
+	greeting, _ := cm.CreateDetailPage("greeting", "User greeting", "你好！今天天气不错。", rootIndex)
+	question, _ := cm.CreateDetailPage("question", "User question", "什么是 Page-Segment 架构？", rootIndex)
+	conversations, _ := cm.CreateContentsPage("conversations", "对话记录", rootIndex, greeting, question)
+	cm.ExpandDetails(conversations)           // 展开 conversations
+	cm.ExpandDetails(greeting)               // 展开 greeting
+	// question 保持隐藏
 
-	err = cm.ExpandDetails(child1)
-	if err != nil {
-		t.Fatalf("ExpandDetails failed: %v", err)
-	}
+	// 2. projects 分支 (ContentsPage，隐藏)
+	memci, _ := cm.CreateDetailPage("memci", "Memci project", "一个基于上下文管理的 AI Agent 系统", rootIndex)
+	ai_agent, _ := cm.CreateDetailPage("ai_agent", "AI Agent project", "通用 Agent 框架设计", rootIndex)
+	_, _ = cm.CreateContentsPage("projects", "项目列表", rootIndex, memci, ai_agent)
+	// projects 保持隐藏
 
+	// 3. notes 分支 (ContentsPage，展开)
+	old_note, _ := cm.CreateDetailPage("old_note", "Old note", "这是一条旧的笔记，已归档", rootIndex)
+	archive, _ := cm.CreateContentsPage("archive", "归档笔记", rootIndex, old_note)
+	design_idea, _ := cm.CreateDetailPage("design_idea", "Design idea", "考虑使用树形结构来组织上下文，类似文件系统。", rootIndex)
+	notes, _ := cm.CreateContentsPage("notes", "笔记", rootIndex, design_idea, archive)
+	cm.ExpandDetails(notes)                   // 展开notes
+	cm.ExpandDetails(design_idea)            // 展开design_idea
+	// archive 保持隐藏
 
+	// 4. quick_thought (DetailPage，展开)
+	quick_thought, _ := cm.CreateDetailPage("quick_thought", "Quick thought", "应该添加一个快速命令来清空上下文。", rootIndex)
+	cm.ExpandDetails(quick_thought)
+
+	// 生成消息列表
 	messageList, err := cm.GenerateMessageList()
 	if err != nil {
 		t.Fatalf("GenerateMessageList failed: %v", err)
 	}
 
+	// 打印 JSON 格式以便调试
 	jsonData, err := messageList.MarshalJSON()
 	if err != nil {
 		t.Fatalf("MarshalJSON failed: %v", err)
 	}
+	fmt.Println("=== Message List JSON ===")
 	fmt.Println(string(jsonData))
+	fmt.Println("========================")
+
+	// 打印更易读的 markdown 格式
+	fmt.Println("\n=== Rendered Markdown ===")
+	nodes := messageList.GetNode()
+	for nodes != nil {
+		content := nodes.GetMsg().Content.String()
+		fmt.Println(content)
+		fmt.Println("---")
+		nodes = nodes.Next()
+	}
+	fmt.Println("========================")
 
 	if messageList == nil {
 		t.Fatal("Expected non-nil message list")

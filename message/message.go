@@ -482,3 +482,20 @@ func (m *MessageList) UnmarshalJSON(data []byte) error {
 	}
 	return nil
 }
+
+// Join 将 MessageList 中所有消息拼接成一个格式化的字符串
+// 格式: "Role: content\n\nRole: content\n\n..."
+func (m *MessageList) Join() string {
+	var builder strings.Builder
+
+	for node := m.head; node != nil; node = node.next {
+		// 添加角色和内容
+		fmt.Fprintf(&builder, "%s: %s", node.msg.Role, node.msg.Content.String())
+		// 添加分隔符
+		if node.next != nil {
+			builder.WriteString("\n\n")
+		}
+	}
+
+	return builder.String()
+}

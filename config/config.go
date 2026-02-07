@@ -1,6 +1,8 @@
 package config
 
 import (
+	"time"
+
 	"github.com/spf13/viper"
 )
 
@@ -8,6 +10,7 @@ type Config struct {
 	LLM     LLMConfig      `mapstructure:"llm"`
 	Log     LogConfig      `mapstructure:"log"`
 	Context ContextConfig  `mapstructure:"context"`
+	Agent   AgentConfig    `mapstructure:"agent"`
 }
 
 type LLMConfig struct {
@@ -40,6 +43,37 @@ type ContextConfig struct {
 	// 存储配置
 	StorageBaseDir string `toml:"storage_base_dir" mapstructure:"storage_base_dir" default:"./data/pages"` // Page 存储目录
 	StorageUseGzip bool   `toml:"storage_use_gzip" mapstructure:"storage_use_gzip" default:"true"`          // 是否使用 gzip 压缩存储
+}
+
+// AgentConfig holds agent configuration
+type AgentConfig struct {
+	// Loop control
+	MaxIterations    int           // Maximum iterations in ReAct loop (default: 10)
+	IterationTimeout time.Duration // Timeout per iteration (default: 30s)
+
+	// Token management
+	MaxTokens   int // Max tokens before auto-collapse (default: 8000)
+	TokenMargin int // Safety margin for tokens (default: 1000)
+
+	// Error handling
+	MaxRetries int           // Max retries on transient errors (default: 3)
+	RetryDelay time.Duration // Delay between retries (default: 1s)
+
+	// Tool execution
+	ToolTimeout time.Duration // Timeout for tool execution (default: 10s)
+}
+
+// DefaultAgentConfig returns default agent configuration
+func DefaultAgentConfig() *AgentConfig {
+	return &AgentConfig{
+		MaxIterations:    10,
+		IterationTimeout: 30 * time.Second,
+		MaxTokens:        8000,
+		TokenMargin:      1000,
+		MaxRetries:       3,
+		RetryDelay:       1 * time.Second,
+		ToolTimeout:      10 * time.Second,
+	}
 }
 
 var config Config

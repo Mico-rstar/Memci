@@ -1,6 +1,8 @@
 package util
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -241,4 +243,19 @@ func normalizeCode(code string) string {
 		lines = lines[:len(lines)-1]
 	}
 	return strings.Join(lines, "\n")
+}
+
+
+func TestParToolCall(t *testing.T) {
+	data, err := os.ReadFile("./test/data.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ract, err := ParseToolCall(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println(ract.Think)
+	fmt.Println()
+	fmt.Println(ract.ToolCall.Code)
 }

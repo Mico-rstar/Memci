@@ -1,6 +1,7 @@
 package context
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -504,3 +505,100 @@ func TestContextWindow_MultipleSegments(t *testing.T) {
 		}
 	})
 }
+
+// TestContextWindow_ExportToFile 测试导出到文件
+func TestContextWindow_ExportToFile(t *testing.T) {
+	system := NewContextSystem()
+	cw := NewContextWindow(system)
+
+	// 创建Segment
+	segment := NewSegment("test-seg", "Test Segment", "Test", UserSegment)
+	segment.SetPermission(ReadWrite)
+	if err := system.AddSegment(*segment); err != nil {
+		t.Fatalf("Failed to add segment: %v", err)
+	}
+
+	// 创建ContentsPage作为root
+	root, _ := NewContentsPage("Root", "Root Page", "")
+	root.SetIndex(PageIndex("test-seg-0"))
+	root.SetVisibility(Expanded)
+	if err := system.SetSegmentRootIndex("test-seg", "test-seg-0"); err != nil {
+		t.Fatalf("Failed to set root index: %v", err)
+	}
+	if err := system.AddPage(root); err != nil {
+		t.Fatalf("Failed to add root page: %v", err)
+	}
+
+	// 创建子DetailPage（通过系统方法，会自动设置parent关系）
+	agentCtx := NewAgentContext(system)
+	childIndex, err := agentCtx.CreateDetailPage("Child", "Child Page", "This is detail content", "test-seg-0")
+	if err != nil {
+		t.Fatalf("Failed to create child page: %v", err)
+	}
+
+	// 展开子页面
+	if err := agentCtx.ExpandDetails(childIndex); err != nil {
+		t.Fatalf("Failed to expand child page: %v", err)
+	}
+
+	t.Run("ExportToFile should create snapshot file", func(t *testing.T) {
+		outputDir := t.TempDir()
+		turn := 1
+
+		filepath, err := cw.ExportToFile(outputDir, turn)
+		if err != nil {
+			t.Fatalf("ExportToFile failed: %v", err)
+		}
+
+		// 验证文件路径格式
+		if filepath == "" {
+			t.Error("ExportToFile returned empty filepath")
+		}
+
+		// 读取文件内容
+		content, err := os.ReadFile(filepath)
+		if err != nil {
+			t.Fatalf("Failed to read snapshot file: %v", err)
+		}
+
+		contentStr := string(content)
+
+		// 验证文件包含关键信息
+		if !strings.Contains(contentStr, "# ContextWindow Snapshot") {
+			t.Error("Snapshot should contain header")
+		}
+		if !strings.Contains(contentStr, "**Turn**: 1") {
+			t.Error("Snapshot should contain turn number")
+		}
+		if !strings.Contains(contentStr, "Segment: test-seg") {
+			t.Error("Snapshot should contain segment info")
+		}
+		if !strings.Contains(contentStr, "[test-seg-0] Root") {
+			t.Error("Snapshot should contain root page")
+		}
+		if !strings.Contains(contentStr, "[test-seg-1] Child") {
+			t.Error("Snapshot should contain child page")
+		}
+		if !strings.Contains(contentStr, "This is detail content") {
+			t.Error("Snapshot should contain detail content")
+		}
+	})
+
+	t.Run("ExportToFile with non-existent root", func(t *testing.T) {
+		outputDir := t.TempDir()
+
+		// 创建一个没有root的segment
+		emptySeg := NewSegment("empty-seg", "Empty", "Empty", UserSegment)
+		emptySeg.SetPermission(ReadWrite)
+		if err := system.AddSegment(*emptySeg); err != nil {
+			t.Fatalf("Failed to add empty segment: %v", err)
+		}
+
+		// 应该仍然能成功导出（只是没有内容）
+		_, err := cw.ExportToFile(outputDir, 2)
+		if err != nil {
+			t.Errorf("ExportToFile should succeed with empty segment: %v", err)
+		}
+	})
+}
+
