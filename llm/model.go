@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	ModelQwenMax   ModelName = "qwen-max"
+	ModelQwenMax   ModelName = "qwen3-max"
 	ModelQwenPlus  ModelName = "qwen-plus"
 	ModelQwenFlash ModelName = "qwen-flash"
 )

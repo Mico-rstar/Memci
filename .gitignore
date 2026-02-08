@@ -39,3 +39,5 @@ Thumbs.db
 # Air hot reload
 .air.toml
 tmp/
+
+context_snapshots/

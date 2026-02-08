@@ -33,56 +33,92 @@ func (cm *ContextManager) Initialize() error {
 	defer cm.mu.Unlock()
 
 	// 创建默认的系统提示词段
-	sysSeg := NewSegment("sys", "System", "System prompts", SystemSegment)
-	sysSeg.SetPermission(ReadOnly)
-	if err := cm.system.AddSegment(*sysSeg); err != nil {
+	if _, err := cm.createSegmentWithRootPage(
+		"sys", "System", "System prompts",
+		SystemSegment, ReadOnly,
+	); err != nil {
 		return err
 	}
 
-	// 获取系统段指针并生成索引
-	sysSegPtr, err := cm.system.getSegmentInternal("sys")
-	if err != nil {
-		return fmt.Errorf("failed to get sys segment: %w", err)
-	}
-	sysRootIndex := sysSegPtr.GenerateIndex()
-
-	// 创建系统提示词 root page
-	sysRoot, _ := NewContentsPage("System", "System prompts", "")
-	sysRoot.SetVisibility(Expanded)
-	sysRoot.SetIndex(sysRootIndex)
-	if err := cm.system.SetSegmentRootIndex("sys", sysRoot.GetIndex()); err != nil {
-		return err
-	}
-	if err := cm.system.AddPage(sysRoot); err != nil {
+	// 创建用户认知段
+	if _, err := cm.createSegmentWithRootPage(
+		"usr", "User", "对用户的认知，例如用户姓名、兴趣、偏好等",
+		UserSegment, ReadWrite,
+	); err != nil {
 		return err
 	}
 
-	// 创建用户交互段
-	usrSeg := NewSegment("usr", "User", "User interactions", UserSegment)
-	usrSeg.SetPermission(ReadWrite)
-	if err := cm.system.AddSegment(*usrSeg); err != nil {
+	// 创建自我认知段
+	if _, err := cm.createSegmentWithRootPage(
+		"self", "Self", "对自我的认知，例如自己的名字、性格、兴趣等",
+		UserSegment, ReadWrite,
+	); err != nil {
 		return err
 	}
 
-	// 获取用户段指针并生成索引
-	usrSegPtr, err := cm.system.getSegmentInternal("usr")
-	if err != nil {
-		return fmt.Errorf("failed to get usr segment: %w", err)
-	}
-	usrRootIndex := usrSegPtr.GenerateIndex()
-
-	// 创建用户 root page
-	usrRoot, _ := NewContentsPage("User", "User interactions", "")
-	usrRoot.SetVisibility(Expanded)
-	usrRoot.SetIndex(usrRootIndex)
-	if err := cm.system.SetSegmentRootIndex("usr", usrRoot.GetIndex()); err != nil {
+	// 创建经验教训
+	if _, err := cm.createSegmentWithRootPage(
+		"teach", "Teach", "总结经验教训",
+		UserSegment, ReadWrite,
+	); err != nil {
 		return err
 	}
-	if err := cm.system.AddPage(usrRoot); err != nil {
+
+	// 创建话题段
+	if _, err := cm.createSegmentWithRootPage(
+		"topic", "Topic", "记录和用户聊过的有意思的话题",
+		UserSegment, ReadWrite,
+	); err != nil {
+		return err
+	}
+
+	// 创建交互段
+	if _, err := cm.createSegmentWithRootPage(
+		"interact", "Interaction", "最近和用户聊了什么",
+		UserSegment, ReadWrite,
+	); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// createSegmentWithRootPage 创建 Segment 及其根 Page
+// 返回根 Page 的索引
+func (cm *ContextManager) createSegmentWithRootPage(
+	id SegmentID,
+	name, description string,
+	segType SegmentType,
+	permission SegmentPermission,
+) (PageIndex, error) {
+	// 创建 Segment
+	seg := NewSegment(id, name, description, segType)
+	seg.SetPermission(permission)
+	if err := cm.system.AddSegment(*seg); err != nil {
+		return "", err
+	}
+
+	// 获取段指针并生成索引
+	segPtr, err := cm.system.getSegmentInternal(id)
+	if err != nil {
+		return "", fmt.Errorf("failed to get %s segment: %w", id, err)
+	}
+	rootIndex := segPtr.GenerateIndex()
+
+	// 创建根 Page
+	root, _ := NewContentsPage(name, description, "")
+	root.SetVisibility(Expanded)
+	root.SetIndex(rootIndex)
+
+	// 设置关联关系并添加到系统
+	if err := cm.system.SetSegmentRootIndex(id, root.GetIndex()); err != nil {
+		return "", err
+	}
+	if err := cm.system.AddPage(root); err != nil {
+		return "", err
+	}
+
+	return rootIndex, nil
 }
 
 // SetupSegment 创建并配置 Segment

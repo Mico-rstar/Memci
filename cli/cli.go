@@ -88,7 +88,7 @@ func (c *CLI) printWelcome() {
 	fmt.Printf("%s║%s                                                                %s║%s\n", Cyan, Bold, Cyan, Reset)
 	fmt.Printf("%s╚════════════════════════════════════════════════════════════════╝%s\n", Cyan, Reset)
 	fmt.Println()
-	fmt.Printf("%sVersion:%s 1.0.0    %sMode:%s Interactive    %sModel:%s Qwen Flash\n", Gray, Reset, Gray, Reset, Gray, Reset)
+	fmt.Printf("%sVersion:%s 1.0.0    %sMode:%s Interactive    %sModel:%s %s\n", Gray, Reset, Gray, Reset, Gray, Reset, llm.ModelQwenMax)
 	fmt.Println()
 	fmt.Printf("%s可用命令:%s\n", Gray, Reset)
 	fmt.Printf("  %s/help%s    - 显示帮助信息\n", Yellow, Reset)

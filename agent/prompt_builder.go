@@ -47,6 +47,19 @@ func BuildSystemPrompts(contextMgr *context.ContextManager) error {
 		return fmt.Errorf("failed to expand ATTP protocol page: %w", err)
 	}
 
+	workflowPage, err := contextMgr.CreateDetailPageSystem(
+		"Memci Workflow",
+		"回答每个问题需要遵循的workflow",
+		string(workflowPrompt),
+		rootIndex,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create workflow page: %w", err)
+	}
+	if err := contextMgr.ExpandDetailsSystem(workflowPage); err != nil {
+		return fmt.Errorf("failed to hide workflow page: %w", err)
+	}
+
 	contextPage, err := contextMgr.CreateDetailPageSystem(
 		"Context System Instroduction",
 		"上下文管理系统介绍",
@@ -59,7 +72,7 @@ func BuildSystemPrompts(contextMgr *context.ContextManager) error {
 	if err := contextMgr.ExpandDetailsSystem(contextPage); err != nil {
 		return fmt.Errorf("failed to expand context system page: %w", err)
 	}
-	
+
 	skillPage, err := contextMgr.CreateDetailPageSystem(
 		"Memci Skills",
 		"上下文管理技能指南",
@@ -73,18 +86,5 @@ func BuildSystemPrompts(contextMgr *context.ContextManager) error {
 		return fmt.Errorf("failed to hide skill page: %w", err)
 	}
 
-
-	workflowPage, err := contextMgr.CreateDetailPageSystem(
-		"Memci Workflow",
-		"回答每个问题需要遵循的workflow",
-		string(workflowPrompt),
-		rootIndex,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create workflow page: %w", err)
-	}
-	if err := contextMgr.ExpandDetailsSystem(workflowPage); err != nil {
-		return fmt.Errorf("failed to hide workflow page: %w", err)
-	}
 	return nil
 }

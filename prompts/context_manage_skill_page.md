@@ -44,32 +44,6 @@ create_contents_page 创建 ContentsPage
 - 返回: str - 新 Page 的 index
 create_contents_page(name: str, description: str, parent_index: str, children: list) -> str
 
-# ============ Page 查询工具 ============
-
-# get_page 获取 Page
-# 参数: page_index (str)
-# 返回: dict - Page 信息 {index, name, description, type, has_detail}
-get_page(page_index: str) -> dict
-
-# get_children 获取子 Page 列表
-# 参数: page_index (str)
-# 返回: list[dict] - 子 Page 列表
-get_children(page_index: str) -> list
-
-# get_parent 获取父 Page
-# 参数: page_index (str)
-# 返回: dict or None - 父 Page 信息
-get_parent(page_index: str) -> dict | None
-
-# get_ancestors 获取祖先 Page 列表
-# 参数: page_index (str)
-# 返回: list[dict] - 祖先 Page 列表（从父到根）
-get_ancestors(page_index: str) -> list
-
-# find_page 查找 Page
-# 参数: query (str)
-# 返回: list[dict] - 匹配的 Page 列表
-find_page(query: str) -> list
 ```
 
 
@@ -106,7 +80,18 @@ __result__ = create_detail_page(
 - 完成了一个子任务后，隐藏相关的临时 Page
 - 对话转向新话题时，隐藏旧话题的 Page
 
-## Few-Shot 示例
+### 何时创建新 Page 
+- 当存在多个相关Page时，创建一个ContentsPage并将它们设置为其子Page
+- 当遭遇异常、错误、矛盾，创建一个DetailPage，总结下次应该如何规避或解决问题
+- 当用户提供的信息中有需要长期记忆的点时，在相关的父节点下创建DetailPage记录下来；如果没有，再记录到顶层父节点中
+
+### 何时删除 Page
+- 当存在Page的信息琐碎、不重要、未来极有可能不再需要时，将其删除
+
+### 何时移动 Page 
+- 当存在子Page放在不相关的父节点下，移动子Page到新父节点
+
+## 示例-详细
 
 ### 示例 1：展开相关 Page 并隐藏无关内容
 
@@ -121,22 +106,13 @@ __result__ = create_detail_page(
 [tool_call]
 target = "查看项目信息并隐藏无关内容"
 code = '''
-# 1. 先获取 usr segment 的子节点，了解结构
-usr_root_index = "usr-1"
-children = get_children(usr_root_index)
-
-# 2. 展开 projects Page (假设索引是 usr-7)
+# 1. 展开 projects Page (假设索引是 usr-7)
 expand_details("usr-7")
 
-# 3. 隐藏与当前问题无关的 conversations Page
+# 2. 隐藏与当前问题无关的 conversations Page
 hide_details("usr-4")
 
-# 4. 返回项目信息摘要
-projects_info = get_children("usr-7")
-__result__ = {
-    "action": "展开项目页，隐藏对话页",
-    "projects": [p["description"] for p in projects_info]
-}
+__result__ = "展开项目页，隐藏对话页"
 '''
 ```
 
@@ -144,9 +120,9 @@ __result__ = {
 
 ### 示例 2：创建新 Page 记录信息
 
-**用户**：记录一下：Memci 应该支持多轮对话的上下文持久化
+**用户**：请你用更自然的语气进行对话
 
-**思考**：用户要求记录新的想法。我应该：
+**思考**：用户要求我用更自然的语气，这是需要长期记忆的。我应该：
 1. 在合适的父节点下创建新的 DetailPage
 2. 使用清晰的名称和描述
 
@@ -157,8 +133,8 @@ code = '''
 # 在 notes 下创建新的详情页记录想法
 new_index = create_detail_page(
     name="persistence_idea",
-    description="持久化功能想法",
-    detail="Memci 应该支持多轮对话的上下文持久化功能，允许用户保存和恢复对话状态",
+    description="使用更自然的语气",
+    detail="Memci 应该使用更自然的语气回答用户的问题，非结构化优于结构化的回答，不使用markdown格式输出，使用更有亲和力的语气",
     parent_index="usr-11"  # 假设 notes 的索引
 )
 
@@ -173,7 +149,6 @@ __result__ = "已创建笔记页面"
 
 **思考**：用户想切换话题。我应该：
 1. 隐藏所有与当前对话无关的旧话题 Page
-2. 为新话题创建专门的 Page
 
 ```toml
 [tool_call]
@@ -184,30 +159,79 @@ hide_details("usr-4")   # conversations
 hide_details("usr-7")   # projects
 hide_details("usr-11")  # notes
 
-# 2. 为新话题创建专门的 DetailPage
-tech_page = create_detail_page(
-    name="tech_discussion",
-    description="技术实现讨论",
-    detail="开始讨论 Memci 的技术实现方案",
-    parent_index="usr-1"
-)
-
-# 3. 展开新创建的页面
-expand_details(tech_page)
-
 __result__ = "已切换到技术实现话题，创建页面"
 '''
 ```
 
 ---
 
+## 示例-简略
+以下示例仅展示如何思考，不展示具体工具调用
+
+### 示例 4：遇到错误
+#### 错误尚未解决
+**情景**：当你调用工具发生错误
+**思考**：我在调用工具时发生错误。我需要：
+1. 先展开有关错误相关的 Page 查看详情
+
+#### 成功解决错误
+**情景**：当你成功解决错误
+**思考**：我需要总结教训，确保下次不再发生类似错误：
+1. 创建一个DetailPage，使用清晰的name和description
+2. 在detail中详细记录这次错误发生的条件，解决的方法，下次如何规避，如果再次遇到怎么办
+
+---
+
+### 示例 5：信息聚合与重组
+
+**情景**：经常和用户聊关于并发的话题，产生了许多相关Page
+
+**思考**：用户有多个关于并发的Page分散在不同位置。我应该：
+1. 创建一个新的 ContentsPage 来聚合所有相关内容
+2. 将相关 Page 移动到新节点下作为子页面
+
+
+---
+
+### 示例 6：清理冗余信息
+
+**情景**：存在一些Page包含大量低密度信息，例如大量标点符号
+
+**思考**：存在Page有大量低密度信息占用了上下文空间。我应该：
+1. 识别并删除这些临时 Page
+
+
+---
+
+### 示例 7：渐进式深入探索
+
+**用户**：我想了解一下你对我项目的整体理解
+
+**思考**：用户要求整体理解，这是一个高层问题。我应该：
+1. 先只展开 projects 下的 子页 查看目录
+2. 等用户进一步询问具体项目时，再展开相应子页
 
 
 
-## 最佳实践
+---
 
-1. **定期清理**：每完成一个任务，评估是否需要隐藏相关的 Page
-2. **相关性优先**：只展开与当前用户查询直接相关的 Page
-3. **结构化组织**：使用 ContentsPage 来组织相关内容，便于批量管理
-4. **适度展开**：不要一次性展开过多 Page，先查看目录结构，按需展开
-5. **避免频繁操作**：尽量在一次工具调用中完成多个操作，减少往返次数
+### 示例 8：出现矛盾信息
+
+**情景**：用户之前说第二天7点半提醒他起床，后来又说时8点半
+
+**思考**：用户在更新之前的想法。我应该：
+1. 向用户确认是否更新时间
+2. 如果用户确认，使用 update_page 更新之前的内容，避免干扰我后面的判断
+
+
+---
+
+### 示例 9：移动页面重组结构
+
+**情景**：和用户喜好相关的Page被放到了自我认知的Page下
+
+**思考**：之前我应该错误分类了，现在要调整Page的位置
+1. 使用 move_page 将页面移动到新的父节点下
+2. 展开相关页面确认移动成功
+
+

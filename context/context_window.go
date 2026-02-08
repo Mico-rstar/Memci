@@ -181,7 +181,13 @@ func (cw *ContextWindow) AutoCollapse(maxTokens int) ([]PageIndex, error) {
 	}
 
 	// 遍历所有页面，优先折叠DetailPage
+	// 跳过 SystemSegment，避免折叠系统提示词导致 agent 行为失控
 	for _, segment := range segments {
+		// 跳过系统段，系统提示词不应该被折叠
+		if segment.GetType() == SystemSegment {
+			continue
+		}
+
 		rootIndex := segment.GetRootIndex()
 		if rootIndex == "" {
 			continue

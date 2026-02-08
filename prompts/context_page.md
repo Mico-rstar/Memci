@@ -3,7 +3,7 @@
 1. DetailPage,类比文件系统中的文件，存储原始的交互消息，它有两种可见性状态：展开时显示完整内容，隐藏时只显示摘要。
 2. ContentsPage,类比目录，子Page可以是DetailPage，也可以是ContentsPage。展开时能看到子Page的摘要，隐藏时只能看到子Page的名称和索引
 Page 之间通过父子引用形成层级结构。父 Page 可以包含对子 Page 的引用，这样你可以选择性地展开或隐藏特定分支来管理 token 使用。
-当上下文接近 token 限制时，系统会自动折叠 Page（将展开状态改为隐藏）来腾出空间，这个过程是透明的，你不需要手动处理。
+
 schema定义：
 渲染规则：
 - Expanded DetailPage: 显示 [Hide] 标记 + 完整 detail 内容

@@ -179,7 +179,7 @@ func (a *Agent) Run(ctx context.Context, userQuery string) (*AgentResult, error)
 			continue
 		}
 
-		a.logger.Info(toolResult.Result.(string))
+		// a.logger.Info(toolResult.Result.(string))
 		// Add tool result to current turn buffer
 		a.bufferToolResult(toolResult)
 	}
@@ -304,9 +304,9 @@ func (a *Agent) commitCurrentTurn() error {
 	}
 
 	// Get usr segment root
-	usrSeg, err := a.contextMgr.GetSegment("usr")
+	usrSeg, err := a.contextMgr.GetSegment("interact")
 	if err != nil {
-		return fmt.Errorf("failed to get usr segment: %w", err)
+		return fmt.Errorf("failed to get interact segment: %w", err)
 	}
 
 	rootIndex := usrSeg.GetRootIndex()
