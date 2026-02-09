@@ -287,3 +287,17 @@ __result__ = "已创建笔记页面"
 		t.Errorf("Executor.Execute() = %v, want '已创建笔记页面 usr-1-natural_tone'", result)
 	}
 }
+
+func TestExecCode1(t *testing.T) {
+	code := `
+# 在 usr-1 下创建新的详情页记录用户的要求
+print("usr-1-natural_tone")
+	`
+
+	exec := NewExecutor(starlark.StringDict{})
+	_, err := exec.Execute(code)
+	if err != nil {
+		t.Errorf("Executor.Execute() error = %v", err)
+	}
+
+}

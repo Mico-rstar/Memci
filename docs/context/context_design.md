@@ -28,7 +28,7 @@
 - **ContextWindow**: ContextWindow 负责将 Page Tree 渲染为 MessageList，是最终发送给模型的内容
 - **AgentContext**: AgentContext 是 Agent 与 ContextSystem 交互的代理层，负责权限检查
 - **ContextManager**: ContextManager 是统一管理层，协调 AgentContext 和 ContextWindow，是应用层的单一入口
-- **PageStorage**: Page持久化接口，提供可插拔的存储实现（内存、文件、数据库等），支持自动持久化和懒加载
+- **Storage**: Page持久化接口，提供可插拔的存储实现（内存、文件、数据库等），支持自动持久化和懒加载
 
 ### 整体树形结构
 
@@ -60,7 +60,7 @@ ContextManager (统一管理层) - 单例入口
     │   │       │   └─ DetailPage (usr-2)         │
     │   │       └─────────────────────────────────┘
     │   │
-    │   └── PageStorage (持久化层)
+    │   └── Storage (持久化层)
     │       ├── 接口模式: 可插拔存储实现
     │       ├── 支持类型: MemoryStorage, FileStorage, DatabaseStorage
     │       ├── 自动持久化: 写操作自动同步到存储
@@ -181,9 +181,9 @@ if page.GetParent() == "" {
 - ColdArchived: ColdArchived的Page不在上下文窗口内，这类Page已经完全脱离上下文系统，当某个Page被Agent认为不再需要并被卸载出上下文窗口时，该Page及其所有后代Page都变成ColdArchived状态，Agent对其失去直接感知的能力，只能由外部记忆系统重新检索注入
 
 
-## PageStorage 存储架构
+## Storage 存储架构
 
-ContextSystem 通过 **PageStorage 接口** 实现可插拔的存储后端，采用 **双层存储架构**：内存缓存 + 持久化存储。
+ContextSystem 通过 **Storage 接口** 实现可插拔的存储后端，采用 **双层存储架构**：内存缓存 + 持久化存储。
 
 ### 双层存储架构
 
@@ -195,7 +195,7 @@ ContextSystem
     │   ├── 读写操作优先
     │   └── LRU驱逐管理
     │
-    └── PageStorage 接口
+    └── Storage 接口
         ├── 自动持久化（写操作）
         ├── 懒加载（读操作）
         └── 可插拔实现：
@@ -207,7 +207,7 @@ ContextSystem
 
 ### 核心特性
 
-1. **接口解耦**：ContextSystem 持有 PageStorage 接口，不依赖具体实现
+1. **接口解耦**：ContextSystem 持有 Storage 接口，不依赖具体实现
 2. **自动持久化**：写操作（AddPage、UpdatePage、RemovePage）自动同步到存储
 3. **懒加载**：读操作（GetPage）优先检查内存，未命中时从存储加载
 4. **存储切换**：可在运行时切换存储实现，支持数据迁移

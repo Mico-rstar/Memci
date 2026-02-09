@@ -11,13 +11,13 @@ ContextSystem 是上下文管理系统的核心，负责管理所有 Segment 和
 3. **树结构维护**：维护 Page 之间的父子关系
 4. **内部操作**：提供不包含权限检查的核心操作方法
 
-## PageStorage 接口设计
+## Storage 接口设计
 
-ContextSystem 通过 **PageStorage 接口** 与底层存储解耦，支持可插拔的存储实现。
+ContextSystem 通过 **Storage 接口** 与底层存储解耦，支持可插拔的存储实现。
 
 ```go
-// PageStorage Page持久化接口
-type PageStorage interface {
+// Storage Page持久化接口
+type Storage interface {
 	// Save 保存Page
 	Save(page Page) error
 
@@ -84,7 +84,7 @@ type ContextSystem struct {
 
 	// Page 存储
 	pages       map[PageIndex]Page    // 全局 Page 注册表（内存缓存）
-	storage     PageStorage           // 持久化存储接口
+	storage     Storage           // 持久化存储接口
 
 	// 索引生成
 	nextIndex   int                     // 用于生成新的 PageIndex
@@ -111,7 +111,7 @@ func NewContextSystem() *ContextSystem {
 }
 
 // NewContextSystemWithStorage 创建指定存储的上下文系统
-func NewContextSystemWithStorage(storage PageStorage) *ContextSystem {
+func NewContextSystemWithStorage(storage Storage) *ContextSystem {
 	return &ContextSystem{
 		segments:   make([]*Segment, 0),
 		segmentMap: make(map[SegmentID]*Segment),
@@ -124,10 +124,10 @@ func NewContextSystemWithStorage(storage PageStorage) *ContextSystem {
 }
 
 // SetStorage 设置存储实现
-func (cs *ContextSystem) SetStorage(storage PageStorage)
+func (cs *ContextSystem) SetStorage(storage Storage)
 
 // GetStorage 获取当前存储实现
-func (cs *ContextSystem) GetStorage() PageStorage
+func (cs *ContextSystem) GetStorage() Storage
 ```
 
 **所有权说明**：
@@ -457,7 +457,7 @@ ContextSystem
     │   ├── 读写操作
     │   └── 驱逐管理
     │
-    └── PageStorage 接口
+    └── Storage 接口
         ├── MemoryStorage（默认）
         ├── FileStorage（文件系统）
         └── DatabaseStorage（数据库）
@@ -1050,7 +1050,7 @@ func (cs *ContextSystem) LoadFromFile(path string) error
 
 ### 1. 存储解耦（接口模式）
 
-ContextSystem 通过 **PageStorage 接口** 与底层存储解耦：
+ContextSystem 通过 **Storage 接口** 与底层存储解耦：
 
 ```go
 // 优势

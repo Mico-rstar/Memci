@@ -59,7 +59,7 @@ type Page interface {
     GetParent() PageIndex          // 获取父Page的索引，根Page返回空字符串
     SetParent(parentIndex PageIndex) error // 设置父Page
 
-    // 序列化/反序列化（用于PageStorage）
+    // 序列化/反序列化（用于Storage）
     Marshal() ([]byte, error)      // 序列化为字节
     Unmarshal(data []byte) error   // 从字节反序列化
 }
@@ -255,7 +255,7 @@ func (p *ContentsPage) ChildCount() int
 
 ### 5. 序列化支持
 - 所有Page都支持Marshal/Unmarshal
-- 用于PageStorage的持久化和恢复
+- 用于Storage的持久化和恢复
 - 支持Active ↔ Archived的转换
 
 ## 使用示例

@@ -36,18 +36,21 @@ type CLI struct {
 // NewCLI 创建一个新的 CLI 实例
 func NewCLI(cfg *config.Config, lg logger.Logger) *CLI {
 	// 创建上下文管理器
-	ctxMgr := memcicontext.NewContextManager()
+	ctxMgr, restored := memcicontext.NewContextManager(&cfg.Context)
+	if restored {
+		lg.Info("Restore successfully")
+		goto here
+	}
 	if err := ctxMgr.Initialize(); err != nil {
 		lg.Fatal("Failed to initialize context manager", logger.Err(err))
 	}
-
 	// 构建系统提示词（使用 ContextManager 直接构建，绕过权限检查）
 	if err := agent.BuildSystemPrompts(ctxMgr); err != nil {
 		lg.Fatal("Failed to build system prompts", logger.Err(err))
 	}
-
+here:
 	// 创建 Agent
-	agt := agent.NewAgent(cfg, lg, llm.ModelQwenMax, ctxMgr)
+	agt := agent.NewAgent(cfg, lg, llm.ModelName(cfg.LLM.AgentModel), ctxMgr)
 
 	return &CLI{
 		agent:  agt,
@@ -88,7 +91,7 @@ func (c *CLI) printWelcome() {
 	fmt.Printf("%s║%s                                                                %s║%s\n", Cyan, Bold, Cyan, Reset)
 	fmt.Printf("%s╚════════════════════════════════════════════════════════════════╝%s\n", Cyan, Reset)
 	fmt.Println()
-	fmt.Printf("%sVersion:%s 1.0.0    %sMode:%s Interactive    %sModel:%s %s\n", Gray, Reset, Gray, Reset, Gray, Reset, llm.ModelQwenMax)
+	fmt.Printf("%sVersion:%s 1.0.0    %sMode:%s Interactive    %sModel:%s \n", Gray, Reset, Gray, Reset, Gray, Reset)
 	fmt.Println()
 	fmt.Printf("%s可用命令:%s\n", Gray, Reset)
 	fmt.Printf("  %s/help%s    - 显示帮助信息\n", Yellow, Reset)

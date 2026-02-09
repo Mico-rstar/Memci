@@ -15,7 +15,7 @@ type CompactModel struct {
 
 func NewCompactModel(cfg *config.Config, logger logger.Logger) *CompactModel {
 	return &CompactModel{
-		Model: *NewModel(cfg, logger, ModelQwenMax, *tools.NewToolList()),
+		Model: *NewModel(cfg, logger, ModelName(cfg.LLM.CompressModel), *tools.NewToolList()),
 		sysPrompt: prompts.SYS_PROMPT_COMPACT,
 	}
 }

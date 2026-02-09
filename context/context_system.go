@@ -2,6 +2,7 @@ package context
 
 import (
 	"fmt"
+	"memci/config"
 	"strings"
 	"sync"
 	"time"
@@ -9,13 +10,16 @@ import (
 
 // ContextSystem 上下文系统核心
 type ContextSystem struct {
+	// 配置
+	cfg *config.ContextConfig
+
 	// Segment 管理
-	segments   []*Segment         // 按添加顺序存储，显示顺序
+	segments   []*Segment             // 按添加顺序存储，显示顺序
 	segmentMap map[SegmentID]*Segment // 快速查找
 
 	// Page 存储
 	pages   map[PageIndex]Page // 全局 Page 注册表（内存缓存）
-	storage PageStorage        // 持久化存储接口
+	storage Storage            // 持久化存储接口
 
 	// 索引生成
 	nextIndex int // 用于生成新的 PageIndex
@@ -29,20 +33,32 @@ type ContextSystem struct {
 }
 
 // NewContextSystem 创建新的上下文系统（使用内存存储）
-func NewContextSystem() *ContextSystem {
-	return &ContextSystem{
+func NewContextSystem(cfg *config.ContextConfig) (*ContextSystem, bool) {
+	storage, err := NewFileStorage(cfg.StorageBaseDir)
+	if err != nil {
+		panic(err)
+	}
+	cs := &ContextSystem{
+		cfg:        cfg,
 		segments:   make([]*Segment, 0),
 		segmentMap: make(map[SegmentID]*Segment),
 		pages:      make(map[PageIndex]Page),
-		storage:    NewMemoryStorage(), // 默认使用内存存储
+		storage:    storage,
 		nextIndex:  0,
 		createdAt:  time.Now(),
 		updatedAt:  time.Now(),
 	}
+	// 自动恢复持久化的数据
+	restored, err := cs.Restore()
+	if err != nil {
+		// 恢复失败不影响系统创建，只记录错误
+		_ = err
+	}
+	return cs, restored
 }
 
 // NewContextSystemWithStorage 创建指定存储的上下文系统
-func NewContextSystemWithStorage(storage PageStorage) *ContextSystem {
+func NewContextSystemWithStorage(storage Storage) *ContextSystem {
 	return &ContextSystem{
 		segments:   make([]*Segment, 0),
 		segmentMap: make(map[SegmentID]*Segment),
@@ -55,7 +71,7 @@ func NewContextSystemWithStorage(storage PageStorage) *ContextSystem {
 }
 
 // SetStorage 设置存储实现
-func (cs *ContextSystem) SetStorage(storage PageStorage) {
+func (cs *ContextSystem) SetStorage(storage Storage) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	cs.storage = storage
@@ -63,7 +79,7 @@ func (cs *ContextSystem) SetStorage(storage PageStorage) {
 }
 
 // GetStorage 获取当前存储实现
-func (cs *ContextSystem) GetStorage() PageStorage {
+func (cs *ContextSystem) GetStorage() Storage {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
 	return cs.storage
@@ -81,14 +97,8 @@ func (cs *ContextSystem) AddSegment(segment Segment) error {
 		return fmt.Errorf("segment %s already exists", segment.GetID())
 	}
 
-	// 如果有rootIndex，验证root page存在
-	if segment.GetRootIndex() != "" {
-		if _, pageExists := cs.pages[segment.GetRootIndex()]; !pageExists {
-			if cs.storage != nil && !cs.storage.Exists(segment.GetRootIndex()) {
-				return fmt.Errorf("root page %s not found", segment.GetRootIndex())
-			}
-		}
-	}
+	// 注意：不验证 root page 是否存在，允许先添加 Segment 再添加 Page 的场景
+	// Page 的有效性由 AddPage 验证
 
 	// 创建副本并存储指针
 	seg := &Segment{}
@@ -96,6 +106,16 @@ func (cs *ContextSystem) AddSegment(segment Segment) error {
 	cs.segments = append(cs.segments, seg)
 	cs.segmentMap[segment.GetID()] = seg
 	cs.updatedAt = time.Now()
+
+	// 持久化 Segment 元数据
+	if cs.storage != nil {
+		if err := cs.storage.SaveSegment(seg); err != nil {
+			// 持久化失败，回滚内存操作
+			cs.segments = cs.segments[:len(cs.segments)-1]
+			delete(cs.segmentMap, segment.GetID())
+			return fmt.Errorf("failed to save segment: %w", err)
+		}
+	}
 
 	return nil
 }
@@ -111,15 +131,30 @@ func (cs *ContextSystem) RemoveSegment(id SegmentID) error {
 	}
 
 	// 从切片中移除
+	removedIndex := -1
 	for i, seg := range cs.segments {
 		if seg.GetID() == id {
 			cs.segments = append(cs.segments[:i], cs.segments[i+1:]...)
+			removedIndex = i
 			break
 		}
 	}
 
 	// 从map中移除
 	delete(cs.segmentMap, id)
+
+	// 从存储删除 Segment 元数据
+	if cs.storage != nil {
+		if err := cs.storage.DeleteSegment(id); err != nil {
+			// 删除失败，回滚内存操作
+			cs.segmentMap[id] = segment
+			if removedIndex >= 0 {
+				cs.segments = append(cs.segments[:removedIndex], append([]*Segment{segment}, cs.segments[removedIndex:]...)...)
+			}
+			return fmt.Errorf("failed to delete segment from storage: %w", err)
+		}
+	}
+
 	cs.updatedAt = time.Now()
 
 	// 注意：不删除Segment下的Page，由外部管理
@@ -139,6 +174,14 @@ func (cs *ContextSystem) SetSegmentRootIndex(id SegmentID, rootIndex PageIndex) 
 
 	segment.rootIndex = rootIndex
 	cs.updatedAt = time.Now()
+
+	// 持久化更新到存储
+	if cs.storage != nil {
+		if err := cs.storage.SaveSegment(segment); err != nil {
+			return fmt.Errorf("failed to save segment: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -263,7 +306,9 @@ func (cs *ContextSystem) AddPage(page Page) error {
 			}
 		}
 		if parentPage, ok := parent.(*ContentsPage); ok {
-			parentPage.AddChild(pageIndex)
+			if err := parentPage.AddChild(pageIndex); err != nil {
+				return err
+			}
 		} else {
 			return fmt.Errorf("parent page %s is not a ContentsPage", parentIndex)
 		}
@@ -279,6 +324,18 @@ func (cs *ContextSystem) AddPage(page Page) error {
 			// 持久化失败，回滚内存操作
 			delete(cs.pages, pageIndex)
 			return fmt.Errorf("failed to save page %s to storage: %w", pageIndex, err)
+		}
+
+		// 如果页面有父页面，也需要保存父页面（因为父页面的 children 列表被更新了）
+		if parentIndex != "" {
+			if parent, exists := cs.pages[parentIndex]; exists {
+				if err := cs.storage.Save(parent); err != nil {
+					// 父页面保存失败，回滚
+					delete(cs.pages, pageIndex)
+					cs.storage.Delete(pageIndex)
+					return fmt.Errorf("failed to save parent page %s: %w", parentIndex, err)
+				}
+			}
 		}
 	}
 
@@ -580,6 +637,13 @@ func (cs *ContextSystem) createDetailPageInternal(name, description, detail stri
 	// 2. 生成新PageIndex（使用Segment的索引生成）
 	newPageIndex := segment.GenerateIndex()
 
+	// 保存更新后的 Segment（因为 nextIndex 已递增）
+	if cs.storage != nil {
+		if err := cs.storage.SaveSegment(segment); err != nil {
+			return "", fmt.Errorf("failed to save segment: %w", err)
+		}
+	}
+
 	// 3. 创建DetailPage
 	page, err := NewDetailPage(name, description, detail, parentIndex)
 	if err != nil {
@@ -620,6 +684,13 @@ func (cs *ContextSystem) createContentsPageInternal(name, description string, pa
 
 	// 2. 生成新PageIndex（使用Segment的索引生成）
 	newPageIndex := segment.GenerateIndex()
+
+	// 保存更新后的 Segment（因为 nextIndex 已递增）
+	if cs.storage != nil {
+		if err := cs.storage.SaveSegment(segment); err != nil {
+			return "", fmt.Errorf("failed to save segment: %w", err)
+		}
+	}
 
 	// 3. 创建ContentsPage
 	page, err := NewContentsPage(name, description, parentIndex)
@@ -759,4 +830,56 @@ func (cs *ContextSystem) FindPage(query string) []Page {
 	}
 
 	return results
+}
+
+// ============ 持久化恢复方法 ============
+
+// Restore 从存储恢复Segment和Page
+func (cs *ContextSystem) Restore() (bool, error) {
+	restored := false
+	if cs.storage == nil {
+		return false, nil // 没有存储，跳过恢复
+	}
+
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	// 1. 恢复 Segments
+	segments, err := cs.storage.ListSegments()
+	if err != nil {
+		return false, fmt.Errorf("failed to list segments: %w", err)
+	}
+	if len(segments) != 0 {
+		restored = true
+	}
+
+	// 恢复 segments 到内存
+	for _, seg := range segments {
+		cs.segments = append(cs.segments, seg)
+		cs.segmentMap[seg.GetID()] = seg
+	}
+
+	// 2. 恢复 Pages
+	pageIndices, err := cs.storage.List()
+	if err != nil {
+		return false, fmt.Errorf("failed to list pages: %w", err)
+	}
+
+	// 加载所有 Active 状态的 Page 到内存
+	for _, pageIndex := range pageIndices {
+		// 加载 page
+		page, err := cs.storage.Load(pageIndex)
+		if err != nil {
+			return false, fmt.Errorf("failed to load page %s: %w", pageIndex, err)
+		}
+
+		// 只缓存 Active 状态的 Page
+		// if page.GetLifecycle() == Active {
+		cs.pages[pageIndex] = page
+		// }
+		// 非 Active 状态的 Page 按需懒加载
+	}
+
+	cs.updatedAt = time.Now()
+	return restored, nil
 }

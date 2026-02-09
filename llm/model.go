@@ -17,6 +17,7 @@ const (
 	ModelQwenMax   ModelName = "qwen3-max"
 	ModelQwenPlus  ModelName = "qwen-plus"
 	ModelQwenFlash ModelName = "qwen-flash"
+	ModelDeepSeek  ModelName = "deepseek-chat"
 )
 
 type ModelName string

@@ -100,10 +100,7 @@ func (a *Agent) Run(ctx context.Context, userQuery string) (*AgentResult, error)
 		a.logger.Info("Starting iteration",
 			logger.Int("iteration", currentTurn))
 
-		// Export ContextWindow to file for observation
-		if err := a.exportContextSnapshot(currentTurn); err != nil {
-			a.logger.Warn("Failed to export context snapshot", logger.Err(err))
-		}
+		
 
 		// Check context window
 		if err := a.manageContextWindow(ctx); err != nil {
@@ -154,6 +151,11 @@ func (a *Agent) Run(ctx context.Context, userQuery string) (*AgentResult, error)
 
 			// Add assistant response to current turn buffer
 			a.currentTurnMessages.AddMessage(message.Assistant, finalMsg)
+
+			// Export ContextWindow to file for observation
+		if err := a.exportContextSnapshot(currentTurn); err != nil {
+			a.logger.Warn("Failed to export context snapshot", logger.Err(err))
+		}
 
 			// Commit current turn messages as a single detail page
 			if err := a.commitCurrentTurn(); err != nil {
@@ -254,7 +256,7 @@ func (a *Agent) callLLM(ctx context.Context, msgList *message.MessageList) (mess
 	}
 
 	a.logger.Debug("LLM response received",
-		logger.String("content_preview", truncateString(resp.Content.String(), 100)))
+		logger.String("content_preview", resp.Content.String()))
 
 	return resp, nil
 }

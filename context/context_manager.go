@@ -2,12 +2,14 @@ package context
 
 import (
 	"fmt"
+	"memci/config"
 	"memci/message"
 	"sync"
 )
 
 // ContextManager 上下文管理器
 type ContextManager struct {
+	cfg		*config.ContextConfig
 	system *ContextSystem
 	agent  *AgentContext
 	window *ContextWindow
@@ -15,16 +17,17 @@ type ContextManager struct {
 }
 
 // NewContextManager 创建新的上下文管理器
-func NewContextManager() *ContextManager {
-	system := NewContextSystem()
+func NewContextManager(cfg *config.ContextConfig) (*ContextManager, bool) {
+	system, restored := NewContextSystem(cfg)
 	agent := NewAgentContext(system)
 	window := NewContextWindow(system)
 
 	return &ContextManager{
+		cfg:    cfg,
 		system: system,
 		agent:  agent,
 		window: window,
-	}
+	}, restored
 }
 
 // Initialize 初始化上下文管理器
@@ -104,6 +107,11 @@ func (cm *ContextManager) createSegmentWithRootPage(
 		return "", fmt.Errorf("failed to get %s segment: %w", id, err)
 	}
 	rootIndex := segPtr.GenerateIndex()
+
+	// 保存更新后的 Segment（因为 nextIndex 已递增）
+	if err := cm.system.GetStorage().SaveSegment(segPtr); err != nil {
+		return "", fmt.Errorf("failed to save segment: %w", err)
+	}
 
 	// 创建根 Page
 	root, _ := NewContentsPage(name, description, "")

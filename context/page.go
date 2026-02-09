@@ -85,7 +85,7 @@ type Page interface {
 	SetDescription(description string) error
 	SetName(name string) error
 
-	// 序列化/反序列化（用于PageStorage）
+	// 序列化/反序列化（用于Storage）
 	Marshal() ([]byte, error)  // 序列化为字节
 	Unmarshal(data []byte) error // 从字节反序列化
 }
@@ -112,15 +112,16 @@ type DetailPage struct {
 
 // detailPageJSON 用于JSON序列化的内部结构
 type detailPageJSON struct {
-	Index        string         `json:"index"`
-	Name         string         `json:"name"`
-	Description  string         `json:"description"`
-	Lifecycle    PageLifecycle  `json:"lifecycle"`
-	Visibility   PageVisibility `json:"visibility"`
-	Parent       string         `json:"parent"`
-	Detail       string         `json:"detail"`
-	CreatedAt    time.Time      `json:"createdAt"`
-	UpdatedAt    time.Time      `json:"updatedAt"`
+	Type        string         `json:"type"`
+	Index       string         `json:"index"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Lifecycle   PageLifecycle  `json:"lifecycle"`
+	Visibility  PageVisibility `json:"visibility"`
+	Parent      string         `json:"parent"`
+	Detail      string         `json:"detail"`
+	CreatedAt   time.Time      `json:"createdAt"`
+	UpdatedAt   time.Time      `json:"updatedAt"`
 }
 
 // NewDetailPage 创建新的DetailPage
@@ -229,15 +230,16 @@ func (p *DetailPage) SetIndex(index PageIndex) {
 // Marshal 序列化
 func (p *DetailPage) Marshal() ([]byte, error) {
 	data := detailPageJSON{
-		Index:        string(p.index),
-		Name:         p.name,
-		Description:  p.description,
-		Lifecycle:    p.lifecycle,
-		Visibility:   p.visibility,
-		Parent:       string(p.parent),
-		Detail:       p.detail,
-		CreatedAt:    p.createdAt,
-		UpdatedAt:    p.updatedAt,
+		Type:        "detail",
+		Index:       string(p.index),
+		Name:        p.name,
+		Description: p.description,
+		Lifecycle:   p.lifecycle,
+		Visibility:  p.visibility,
+		Parent:      string(p.parent),
+		Detail:      p.detail,
+		CreatedAt:   p.createdAt,
+		UpdatedAt:   p.updatedAt,
 	}
 	return json.Marshal(data)
 }
@@ -282,6 +284,7 @@ type ContentsPage struct {
 
 // contentsPageJSON 用于JSON序列化的内部结构
 type contentsPageJSON struct {
+	Type        string         `json:"type"`
 	Index       string         `json:"index"`
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
@@ -391,6 +394,7 @@ func (p *ContentsPage) Marshal() ([]byte, error) {
 		children[i] = string(child)
 	}
 	data := contentsPageJSON{
+		Type:        "contents",
 		Index:       string(p.index),
 		Name:        p.name,
 		Description: p.description,
