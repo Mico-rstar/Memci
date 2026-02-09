@@ -35,6 +35,9 @@ type Agent struct {
 	// Dialog turn counter (persists across multiple Run() calls)
 	currentDialogTurn int
 
+	// Context management state
+	contextWarningSent bool
+
 	// Observability
 	logger logger.Logger
 }
@@ -82,6 +85,7 @@ func (a *Agent) Run(ctx context.Context, userQuery string) (*AgentResult, error)
 	a.stateManager.reset()
 	a.currentTurnMessages = message.NewMessageList() // Reset current turn buffer
 	a.currentDialogTurn++                            // Increment dialog turn counter
+	a.contextWarningSent = false                     // Reset context warning flag
 	defer func() {
 		a.stateManager.setState(StateIdle)
 	}()
@@ -202,17 +206,38 @@ func (a *Agent) manageContextWindow(ctx context.Context) error {
 	maxAllowed := a.config.MaxTokens - a.config.TokenMargin
 
 	if currentTokens > maxAllowed {
-		a.logger.Info("Token limit exceeded, auto-collapsing",
-			logger.Int("current_tokens", currentTokens),
-			logger.Int("max_allowed", maxAllowed))
+		if !a.contextWarningSent {
+			// First time: send warning to agent
+			a.logger.Info("Token limit exceeded, sending warning to agent",
+				logger.Int("current_tokens", currentTokens),
+				logger.Int("max_allowed", maxAllowed))
 
-		collapsed, err := a.contextMgr.AutoCollapse(maxAllowed)
-		if err != nil {
-			return err
+			warningMsg := fmt.Sprintf(
+				"[系统提醒] 当前上下文已达到 %d tokens，超出限制 %d tokens。请主动折叠无关的上下文页面，使用 hide_details 工具隐藏不相关的内容。",
+				currentTokens, maxAllowed,
+			)
+			a.currentTurnMessages.AddMessage(message.System, warningMsg)
+			a.contextWarningSent = true
+		} else {
+			// Warning already sent but still over limit: use AutoCollapse as fallback
+			a.logger.Info("Agent did not reduce context, using AutoCollapse as fallback",
+				logger.Int("current_tokens", currentTokens),
+				logger.Int("max_allowed", maxAllowed))
+
+			collapsed, err := a.contextMgr.AutoCollapse(maxAllowed)
+			if err != nil {
+				return err
+			}
+
+			a.logger.Info("Auto-collapsed pages",
+				logger.Int("count", len(collapsed)))
+
+			// Reset warning flag after successful collapse
+			a.contextWarningSent = false
 		}
-
-		a.logger.Info("Collapsed pages",
-			logger.Int("count", len(collapsed)))
+	} else {
+		// Context is under limit, reset warning flag
+		a.contextWarningSent = false
 	}
 
 	return nil
@@ -312,7 +337,7 @@ func (a *Agent) commitCurrentTurn() error {
 	rootIndex := usrSeg.GetRootIndex()
 
 	// Create a detail page with the summary
-	pageIndex, err := a.contextMgr.CreateDetailPage(
+	_, err = a.contextMgr.CreateDetailPage(
 		fmt.Sprintf("Turn %d", a.currentDialogTurn),
 		summaryMsg.Content.String(),
 		a.currentTurnMessages.Join(),
@@ -324,8 +349,10 @@ func (a *Agent) commitCurrentTurn() error {
 		return fmt.Errorf("failed to create detail page: %w", err)
 	}
 
+	// Hidden default
 	// Expand the new page with the summary
-	return a.contextMgr.ExpandDetails(pageIndex)
+	// return a.contextMgr.ExpandDetails(pageIndex)
+	return nil
 }
 
 // bufferToolResult adds a tool result to the current turn buffer (not context)

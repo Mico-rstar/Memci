@@ -255,7 +255,7 @@ func (cw *ContextWindow) HideDetails(pageIndex PageIndex) error {
 }
 
 // ExportToFile 将当前ContextWindow导出到文件
-// 生成人类可读的markdown格式，包含所有Page的结构和内容
+// 输出 Agent 实际看到的 MessageList 内容
 func (cw *ContextWindow) ExportToFile(outputDir string, turn int) (string, error) {
 	// 确保输出目录存在
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
@@ -267,151 +267,36 @@ func (cw *ContextWindow) ExportToFile(outputDir string, turn int) (string, error
 	filename := fmt.Sprintf("context_snapshot_turn_%d_%s.md", turn, timestamp)
 	filepath := filepath.Join(outputDir, filename)
 
-	// 生成内容
-	content := cw.generateHumanReadableContent(turn, timestamp)
+	// 生成 Agent 看到的消息列表
+	msgList, err := cw.GenerateMessageList()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate message list: %w", err)
+	}
+
+	// 构建内容
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("# Turn: %d | Timestamp: %s\n\n", turn, timestamp))
+
+	// 遍历消息节点
+	nodes := msgList.GetNode()
+	for nodes != nil {
+		msg := nodes.GetMsg()
+		content := msg.Content.String()
+
+		builder.WriteString(fmt.Sprintf("## %s\n\n%s\n\n", msg.Role, content))
+		nodes = nodes.Next()
+	}
+
+	// Token 估算
+	tokens, err := cw.EstimateTokens()
+	if err == nil {
+		builder.WriteString(fmt.Sprintf("---\n**Estimated Tokens**: %d\n", tokens))
+	}
 
 	// 写入文件
-	if err := os.WriteFile(filepath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath, []byte(builder.String()), 0644); err != nil {
 		return "", fmt.Errorf("failed to write snapshot file: %w", err)
 	}
 
 	return filepath, nil
-}
-
-// generateHumanReadableContent 生成人类可读的ContextWindow内容
-func (cw *ContextWindow) generateHumanReadableContent(turn int, timestamp string) string {
-	var builder strings.Builder
-
-	// 头部信息
-	builder.WriteString("# ContextWindow Snapshot\n\n")
-	builder.WriteString(fmt.Sprintf("**Turn**: %d\n", turn))
-	builder.WriteString(fmt.Sprintf("**Timestamp**: %s\n\n", timestamp))
-	builder.WriteString("---\n\n")
-
-	// 获取所有Segment
-	segments, err := cw.system.ListSegments()
-	if err != nil {
-		builder.WriteString(fmt.Sprintf("*Error listing segments: %v*\n\n", err))
-		return builder.String()
-	}
-
-	// 渲染每个Segment
-	for _, segment := range segments {
-		rootIndex := segment.GetRootIndex()
-		if rootIndex == "" {
-			continue
-		}
-
-		// Segment信息
-		builder.WriteString(fmt.Sprintf("## Segment: %s\n\n", segment.GetID()))
-		builder.WriteString(fmt.Sprintf("**Type**: %s\n", segment.GetType()))
-		builder.WriteString(fmt.Sprintf("**Permission**: %s\n\n", segment.GetPermission()))
-
-		// 递归渲染页面树
-		rootPage, err := cw.system.GetPage(rootIndex)
-		if err != nil {
-			builder.WriteString(fmt.Sprintf("*Error getting root page: %v*\n\n", err))
-			continue
-		}
-
-		content := cw.renderPageForHuman(rootPage, 0)
-		if content != "" {
-			builder.WriteString(content)
-		}
-
-		builder.WriteString("\n")
-	}
-
-	// Token估算
-	tokens, err := cw.EstimateTokens()
-	if err == nil {
-		builder.WriteString("---\n\n")
-		builder.WriteString(fmt.Sprintf("**Estimated Tokens**: %d\n", tokens))
-	}
-
-	return builder.String()
-}
-
-// renderPageForHuman 为人类可读格式渲染页面（不包含markdown代码块包裹）
-func (cw *ContextWindow) renderPageForHuman(page Page, depth int) string {
-	var builder strings.Builder
-
-	visibility := page.GetVisibility()
-	lifecycle := page.GetLifecycle()
-
-	// 只渲染Active状态的页面
-	if lifecycle != Active {
-		return ""
-	}
-
-	// 生成markdown标题级别
-	headingLevel := depth + 3
-	heading := strings.Repeat("#", headingLevel)
-
-	// 格式：### [索引] 名称: 描述
-	pageIndex := page.GetIndex()
-	pageName := page.GetName()
-	pageDesc := page.GetDescription()
-
-	switch p := page.(type) {
-	case *DetailPage:
-		builder.WriteString(fmt.Sprintf("%s [%s] %s", heading, pageIndex, pageName))
-		if pageDesc != "" {
-			builder.WriteString(fmt.Sprintf(": %s", pageDesc))
-		}
-
-		// 状态标记
-		if visibility == Expanded {
-			builder.WriteString(" **[Expanded]**")
-		} else {
-			builder.WriteString(" **[Hidden]**")
-		}
-
-		// 如果Expanded，显示detail内容
-		if visibility == Expanded && p.GetDetail() != "" {
-			builder.WriteString("\n\n")
-			builder.WriteString("```\n")
-			builder.WriteString(p.GetDetail())
-			builder.WriteString("\n```")
-		}
-		builder.WriteString("\n\n")
-
-	case *ContentsPage:
-		builder.WriteString(fmt.Sprintf("%s [%s] %s", heading, pageIndex, pageName))
-		if pageDesc != "" {
-			builder.WriteString(fmt.Sprintf(": %s", pageDesc))
-		}
-
-		children := p.GetChildren()
-		if len(children) > 0 {
-			builder.WriteString(fmt.Sprintf(" **(%d children)**", len(children)))
-		}
-
-		// 状态标记
-		if visibility == Expanded {
-			builder.WriteString(" **[Expanded]**")
-		} else {
-			builder.WriteString(" **[Hidden]**")
-		}
-
-		builder.WriteString("\n\n")
-
-		// 如果Expanded，递归渲染子节点
-		if visibility == Expanded {
-			for _, childIndex := range children {
-				childPage, err := cw.system.GetPage(childIndex)
-				if err != nil {
-					builder.WriteString(fmt.Sprintf("*Error: cannot get child %s*\n\n", childIndex))
-					continue
-				}
-
-				childContent := cw.renderPageForHuman(childPage, depth+1)
-				if childContent != "" {
-					builder.WriteString(childContent)
-				}
-			}
-		}
-	}
-
-	return builder.String()
 }
