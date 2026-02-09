@@ -1,4 +1,4 @@
-# Binaries
+# ============ Binaries ============
 bin/
 *.exe
 *.exe~
@@ -7,39 +7,119 @@ bin/
 *.dylib
 *.test
 *.out
+memci
 
-# Go workspace
+# ============ Go workspace ============
 /workspace/
+go.work
+go.work.sum
 
-# Logs
+# ============ Go build cache ============
+vendor/
+*.sum
+.coverage.txt
+coverage.html
+coverage.out
+
+# ============ Logs ============
 /logs/
 *.log
 
-#test
+# ============ Test ============
 test/
+*.test
 
-# Config (with sensitive data)
+# ============ Config (with sensitive data) ============
 config.toml
+config.local.toml
 
-# IDE
+# ============ IDE ============
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+.history/
 
-# OS
+# ============ OS ============
 .DS_Store
 Thumbs.db
+.Spotlight-V100
+.Trashes
 
-# Environment
+# ============ Environment ============
 .env
 .env.local
+.env.*.local
 
-# Air hot reload
+# ============ Air hot reload ============
 .air.toml
 tmp/
+temp/
 
+# ============ Data and storage ============
 context_snapshots/
-
 data/
+
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============ Virtual environments ============
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# ============ Conda ============
+miniconda3/
+anaconda3/
+.conda/
+
+# ============ Protobuf generated files (optional) ============
+# Uncomment if you want to ignore generated files
+# proto/*.pb.go
+# proto/*_grpc.pb.go
+# proto/__init__.py
+# proto/*_pb2.py
+# proto/*_pb2_grpc.py
+
+# ============ Docker ============
+.dockerignore
+
+# ============ Temporary files ============
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+.cache/
+
+# ============ Build artifacts ============
+Makefile.local

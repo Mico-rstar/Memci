@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package executor;
+
+option go_package = "memci/proto";
+
+// Python 执行服务
+service PythonExecutor {
+  // 执行 Python 代码
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+
+  // 健康检查
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// 执行请求
+message ExecuteRequest {
+  string code = 1;                // Python 代码
+  map<string, Value> context = 2;  // 可用的变量和函数
+  int32 timeout = 3;              // 超时时间（秒）
+}
+
+// 执行响应
+message ExecuteResponse {
+  bool success = 1;
+  Value result = 2;
+  string error = 3;
+  repeated string logs = 4;  // 执行日志
+}
+
+// 通用值类型
+message Value {
+  oneof value {
+    string str_value = 1;
+    int64 int_value = 2;
+    double float_value = 3;
+    bool bool_value = 4;
+    NullValue null_value = 5;
+    ListValue list_value = 6;
+    Struct map_value = 7;
+    FunctionValue function_value = 8;  // Go 函数引用
+  }
+}
+
+enum NullValue {
+  NULL_VALUE = 0;
+}
+
+message ListValue {
+  repeated Value values = 1;
+}
+
+message Struct {
+  map<string, Value> fields = 1;
+}
+
+// Go 函数引用
+message FunctionValue {
+  string name = 1;  // 函数名称
+}
+
+// 健康检查
+message HealthRequest {}
+
+message HealthResponse {
+  bool healthy = 1;
+  string version = 2;
+}

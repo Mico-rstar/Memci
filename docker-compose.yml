@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  memci-go:
+    build: .
+    ports:
+      - "8080:8080"
+    depends_on:
+      python-executor:
+        condition: service_healthy
+    environment:
+      - PYTHON_EXECUTOR_ADDR=python-executor:50051
+      - SCRIPT_EXECUTOR_TYPE=grpc
+    networks:
+      - memci-network
+
+  python-executor:
+    build:
+      context: .
+      dockerfile: python_service/Dockerfile
+    ports:
+      - "50051:50051"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import grpc; import executor_pb2_grpc; channel = grpc.insecure_channel('localhost:50051'); stub = executor_pb2_grpc.PythonExecutorStub(channel); stub.Health(executor_pb2.HealthRequest())"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - memci-network
+
+networks:
+  memci-network:
+    driver: bridge

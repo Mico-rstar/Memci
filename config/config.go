@@ -52,6 +52,23 @@ type AgentConfig struct {
 
 	// Tool execution
 	ToolTimeout time.Duration // Timeout for tool execution (default: 10s)
+
+	// Script executor configuration
+	ScriptExecutor ScriptExecutorConfig `toml:"script_executor" mapstructure:"script_executor"`
+}
+
+// ScriptExecutorConfig holds script executor configuration
+type ScriptExecutorConfig struct {
+	Type string `toml:"type" mapstructure:"type" default:"starlark"` // starlark, grpc
+
+	// gRPC specific configuration
+	GRPC GRPCConfig `toml:"grpc" mapstructure:"grpc"`
+}
+
+// GRPCConfig holds gRPC executor configuration
+type GRPCConfig struct {
+	Address string        `toml:"address" mapstructure:"address" default:"localhost:50051"`
+	Timeout time.Duration `toml:"timeout" mapstructure:"timeout" default:"30s"`
 }
 
 // DefaultAgentConfig returns default agent configuration
