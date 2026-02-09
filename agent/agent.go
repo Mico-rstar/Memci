@@ -175,6 +175,9 @@ func (a *Agent) Run(ctx context.Context, userQuery string) (*AgentResult, error)
 		}
 
 		// Execute tool call
+		// First, add assistant's tool call message to current turn buffer
+		a.currentTurnMessages.AddMessage(message.Assistant, llmResponse.Content.String())
+
 		toolResult, err := a.executeToolCall(ctx, react)
 		fmt.Println(react.ToolCall.Code)
 		if err != nil {
